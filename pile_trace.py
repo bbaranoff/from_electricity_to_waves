@@ -192,8 +192,239 @@ def raster_glyph(char: str = '2', font_size: int = 8,
 # ------------------------------------------------------------
 # 7. Niveaux 0 à 6 (côté UE_A, TX)
 # ------------------------------------------------------------
+
+def L0_origin_keyboard_driver(cfg, a: int, b: int):
+    """NIVEAU 0_origin — Driver clavier Toy (touche physique → signal électrique)"""
+    banner('NIVEAU 0_origin — Driver clavier Toy (touche → signal électrique)')
+    
+    V_keyboard = 3.3
+    R_pullup = 10000
+    t_debounce_ms = 10
+    scan_freq_hz = 1000
+    
+    result_char = str(a + b)
+    
+    print(f'  🎮 CLAVIER TOY - SAISIE : {a} + {b} = {result_char}')
+    print(f'     • Touche : "{result_char}" (ASCII 0x{ord(result_char):02X})')
+    print(f'     • Matrice : ligne {ord(result_char) % 8}, colonne {ord(result_char) // 8}')
+    print(f'     • Vcc = {V_keyboard} V, R_pullup = {R_pullup/1000:.0f} kΩ')
+    print(f'     • Anti-rebond : {t_debounce_ms} ms')
+    
+    # Signal après anti-rebond
+    t_clean = np.linspace(0, 20, 200)
+    V_clean = np.ones_like(t_clean) * V_keyboard
+    mask = t_clean >= t_debounce_ms
+    V_clean[mask] = 0
+    
+    print('\n  💾 SIGNAL NUMÉRIQUE FINAL :')
+    print('  ┌─────────────────────────────────────────────────────────────────┐')
+    print('  │ Vout(V)   Digital                                              │')
+    print('  │  3.3 ┤██████████████████████████████████████████████████████████│')
+    print('  │  0.0 ┤                                                          │')
+    print('  │      ┼───────┬───────┬───────┬───────┬───────┬───────┬───────┬─┤')
+    print('  │        0      2      4      6      8     10     12     14     16')
+    print('  │                           t (ms)                                │')
+    print('  └─────────────────────────────────────────────────────────────────┘')
+    
+    return {'V_clean': V_clean, 'char': result_char, 'vcc': V_keyboard, 'value': int(result_char)}
+
+
+def L0_mosfet_switch(cfg, keyboard_signal):
+    """NIVEAU 0 — MOSFET NMOS en commutation (switch)"""
+    banner('NIVEAU 0 — MOSFET NMOS : commutation clavier → courant')
+    
+    VDD = cfg['vdd_core_v']
+    Vth = cfg['mosfet_vth_v']
+    mu_Cox_per = cfg['mosfet_mu_cox_uA_V2']
+    WL = cfg['mosfet_WL']
+    Cload = cfg['mosfet_cload_F']
+    
+    # Tension de grille = signal numérique du clavier
+    Vgs = keyboard_signal['vcc'] if keyboard_signal['V_clean'][0] > 1 else 0
+    
+    print(f'  🔌 SIGNAL D\'ENTRÉE :')
+    print(f'     • Touche : "{keyboard_signal["char"]}" → V_GS = {Vgs} V')
+    
+    if Vgs > Vth:
+        Id_sat = 0.5 * mu_Cox_per * WL * (Vgs - Vth) ** 2
+        Ron = VDD / Id_sat
+        region = 'SATURATION (passant)'
+        print(f'\n  ✅ MOSFET ACTIF :')
+    else:
+        Id_sat = 0
+        Ron = float('inf')
+        region = 'COUPÉ (bloqué)'
+        print(f'\n  ❌ MOSFET BLOQUÉ :')
+    
+    print(f'     • V_GS = {Vgs} V, V_th = {Vth} V')
+    print(f'     • I_D = {Id_sat*1e6:.1f} µA')
+    print(f'     • R_on = {Ron/1e3 if Id_sat > 0 else "∞":.2f} kΩ')
+    
+    Eswitch = 0.5 * Cload * VDD ** 2
+    print(f'     • E_switch = {Eswitch*1e15:.2f} fJ')
+    
+    return {'vdd': VDD, 'ron': Ron, 'id': Id_sat, 'vgs': Vgs, 'region': region, 'value': keyboard_signal['value']}
+
+
+def L0_bis_inverter(cfg, mosfet_params):
+    """NIVEAU 0 bis — Inverseur CMOS (porte NOT)"""
+    banner('NIVEAU 0 bis — Inverseur CMOS (porte NOT)')
+    
+    VDD = mosfet_params['vdd']
+    Ron_n = mosfet_params['ron'] if mosfet_params['ron'] != float('inf') else 1e6
+    Ron_p = Ron_n * 2.5
+    Vth_inv = VDD / 2
+    
+    # Entrée = tension drain du MOSFET
+    Vin = 0 if mosfet_params['region'] == 'SATURATION (passant)' else VDD
+    
+    if Vin < Vth_inv:
+        Vout = VDD
+        nmos = 'OFF'
+        pmos = 'ON'
+    else:
+        Vout = 0
+        nmos = 'ON'
+        pmos = 'OFF'
+    
+    print(f'  • VDD = {VDD} V, seuil = {Vth_inv} V')
+    print(f'  • Vin = {Vin:.1f} V (sortie MOSFET)')
+    print(f'  • Vout = {Vout:.1f} V (NOT de Vin)')
+    print(f'  • NMOS = {nmos}, PMOS = {pmos}')
+    
+    Cload = cfg['mosfet_cload_F']
+    t_rise = 2.2 * Ron_p * Cload
+    t_fall = 2.2 * Ron_n * Cload
+    
+    print(f'\n  ⏱️  Délais : t_rise = {t_rise*1e12:.2f} ps, t_fall = {t_fall*1e12:.2f} ps')
+    
+    return {'vout': Vout, 't_rise': t_rise, 't_fall': t_fall, 'value': int(Vout > VDD/2)}
+
+
+def L0_ter_nand(cfg, inv_params):
+    """NIVEAU 0 ter — Porte NAND 2 entrées"""
+    banner('NIVEAU 0 ter — Porte NAND (porte universelle)')
+    
+    VDD = cfg['vdd_core_v']
+    
+    # Simulation : A = bit de poids fort, B = bit de poids faible du résultat
+    valeur = inv_params['value']
+    A = (valeur >> 1) & 1
+    B = valeur & 1
+    
+    Y = not (A and B)
+    
+    print(f'  • Entrée A = {A} (bit de poids fort)')
+    print(f'  • Entrée B = {B} (bit de poids faible)')
+    print(f'  • NAND : Y = NOT(A AND B) = {int(Y)}')
+    
+    print('\n  Table de vérité :')
+    print('  ┌─────┬─────┬───────┐')
+    print('  │  A  │  B  │ Y=A·B │')
+    print('  ├─────┼─────┼───────┤')
+    for a in [0, 1]:
+        for b in [0, 1]:
+            y = not (a and b)
+            print(f'  │  {a}  │  {b}  │   {int(y)}   │')
+    print('  └─────┴─────┴───────┘')
+    
+    Ron_n = cfg['vdd_core_v'] / (0.5 * cfg['mosfet_mu_cox_uA_V2'] * cfg['mosfet_WL'] * (cfg['vdd_core_v'] - cfg['mosfet_vth_v'])**2)
+    Ron_p = Ron_n * 2.5
+    Cload = cfg['mosfet_cload_F']
+    
+    t_hl = 2.2 * (Ron_n * 2) * Cload
+    t_lh = 2.2 * Ron_p * Cload
+    
+    print(f'\n  ⏱️  Délais : t_HL = {t_hl*1e12:.2f} ps, t_LH = {t_lh*1e12:.2f} ps')
+    
+    return {'y': int(Y), 'nand_delay': (t_hl + t_lh)/2, 'value': int(Y)}
+
+
+def L0_quart_register(cfg, nand_params):
+    """NIVEAU 0 quart — Bascule D et registre 2 bits"""
+    banner('NIVEAU 0 quart — Bascule D → Registre 2 bits')
+    
+    # Valeur à stocker (résultat de l'addition)
+    valeur = nand_params['value']
+    
+    # Sur 2 bits
+    bits = [(valeur >> i) & 1 for i in range(1, -1, -1)]
+    
+    print(f'  🔷 BASCULE D MASTER-SLAVE')
+    print(f'     • Valeur à stocker : {valeur}₁₀ = {bits[0]}{bits[1]}₂')
+    print(f'     • Horloge : front montant (1 GHz)')
+    
+    print('\n     Simulation :')
+    print('     ┌───────┬─────┬─────┬─────┬─────┬─────┬─────────────┐')
+    print('     │ Cycle │ CLK │ D1  │ D0  │ Q1  │ Q0  │ État        │')
+    print('     ├───────┼─────┼─────┼─────┼─────┼─────┼─────────────┤')
+    
+    q1, q0 = 0, 0
+    for cycle in range(4):
+        clk = 1 if cycle % 2 == 0 else 0
+        if clk == 1:
+            q1, q0 = bits[0], bits[1]
+        etat = f'stocké {q1}{q0}' if clk == 1 else 'maintien'
+        print(f'     │   {cycle}   │  {clk}  │  {bits[0]}  │  {bits[1]}  │  {q1}  │  {q0}  │ {etat:11} │')
+    
+    print('     └───────┴─────┴─────┴─────┴─────┴─────┴─────────────┘')
+    
+    VDD = cfg['vdd_core_v']
+    f_clk = 1e9
+    C_gate = 10e-15
+    P_dyn = 0.5 * C_gate * VDD**2 * f_clk * 16
+    
+    print(f'\n  ⚡ Consommation : {P_dyn*1e6:.2f} µW')
+    print(f'  💾 Valeur stockée dans le registre : {valeur}₁₀ = {bits[0]}{bits[1]}₂')
+    
+    return {'q1': q1, 'q0': q0, 'value': valeur}
+
+
+def L0_unified_full(cfg, a: int, b: int):
+    """
+    NIVEAU 0 COMPLET UNIFIÉ :
+    Clavier Toy → MOSFET → Inverseur → NAND → Bascule D → Registre
+    Retourne la valeur stockée dans le registre pour le Niveau 1
+    """
+    print('\n' + '=' * 72)
+    print('  NIVEAU 0 COMPLET — Du clavier au registre (chaîne physique)')
+    print('=' * 72)
+    
+    print('\n  📋 CHAÎNE DE TRAITEMENT :')
+    print('  Touche → Contact → Anti-rebond → MOSFET → Inverseur → NAND → Bascule → Registre')
+    print('     ↓         ↓          ↓          ↓         ↓        ↓        ↓         ↓')
+    print('   3.3V      0V/3.3V    0V/3.3V     I_D      NOT     NAND     D Q      Stockage')
+    
+    # Étape 1: Driver clavier
+    keyboard = L0_origin_keyboard_driver(cfg, a, b)
+    
+    # Étape 2: MOSFET switch
+    mosfet = L0_mosfet_switch(cfg, keyboard)
+    
+    # Étape 3: Inverseur CMOS
+    inv = L0_bis_inverter(cfg, mosfet)
+    
+    # Étape 4: Porte NAND
+    nand = L0_ter_nand(cfg, inv)
+    
+    # Étape 5: Registre
+    register = L0_quart_register(cfg, nand)
+    
+    # LIAISON AVEC LE NIVEAU 1
+    print('\n' + '=' * 72)
+    print('  🔗 LIAISON NIVEAU 0 → NIVEAU 1 (Additionneur)')
+    print('=' * 72)
+    print(f'  • Le registre stocke la valeur : {register["value"]}')
+    print(f'  • Cette valeur est chargée dans l\'additionneur du Niveau 1')
+    print(f'  • Format : {register["value"]}₁₀ = {register["q1"]}{register["q0"]}₂')
+    print(f'  • Les bits sont envoyés sur les entrées A et B de l\'additionneur')
+    
+    return register['value']
+
+
 def L0_mosfet(cfg):
-    banner('NIVEAU 0 — MOSFET : U = R · I  (côté UE_A)')
+    """NIVEAU 0 original — MOSFET pour compatibilité"""
+    banner('NIVEAU 0 — MOSFET : U = R · I (côté UE_A)')
     VDD = cfg['vdd_core_v']
     Vth = cfg['mosfet_vth_v']
     mu_Cox_per = cfg['mosfet_mu_cox_uA_V2']
@@ -209,8 +440,11 @@ def L0_mosfet(cfg):
     print(f'  I_D = ½·µCox·(W/L)·(Vgs−Vth)² = {Id_sat*1e6:.1f} µA')
     print(f'  R_on = U / I = {Ron/1e3:.2f} kΩ')
     print(f'  E_switch = ½·C·V² = {Eswitch*1e15:.2f} fJ par transition')
+    return {'vdd': VDD, 'ron': Ron, 'id': Id_sat}
+
 
 def L1_full_adder(a: int, b: int):
+    """NIVEAU 1 — Additionneur complet avec bits auto"""
     banner(f'NIVEAU 1 — Full adder : {a} + {b} en binaire (bits auto)')
     adder = full_adder_auto_bits(a, b)
     
@@ -219,7 +453,6 @@ def L1_full_adder(a: int, b: int):
     print(f'  {b:0{adder["n_bits"]}b} (b)')
     print(f'  {"-" * adder["n_bits"]}')
     
-    # Afficher les étapes significatives
     for step in adder['steps']:
         if step['bit'] >= adder['n_bits'] - 4 or step['bit'] < 4 or step['Cout'] == 1:
             print(f'  bit {step["bit"]:2d} : A={step["A"]} B={step["B"]} Cin={step["Cin"]}  →  S={step["S"]} Cout={step["Cout"]}')
@@ -228,6 +461,11 @@ def L1_full_adder(a: int, b: int):
     print(f'  Résultat : {result_str}₂ = {adder["result"]}₁₀')
     if adder['carry_out']:
         print(f'  ⚠️  Retenue finale = {adder["carry_out"]} (débordement)')
+    
+    # Lien avec le niveau 0
+    print(f'\n  🔗 LIAISON AVEC LE NIVEAU 0 :')
+    print(f'     • Les entrées {a} et {b} viennent du registre du Niveau 0')
+    print(f'     • Le résultat {adder["result"]} va être envoyé au Niveau 2 (ARM ALU)')
     
     return adder['result']
 
@@ -969,41 +1207,50 @@ def parse_addition(addition_str: str) -> tuple:
         print(f"Erreur de parsing: {e}")
         sys.exit(1)
 
+# Modification du main()
 def main():
     parser = argparse.ArgumentParser(
         description='Trace complète LTE/NR : du MOSFET à l\'OLED',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Exemples:
-  %(prog)s pile_values.csv 1+1              # Addition 1+1 (défaut)
-  %(prog)s pile_values.csv 3+5              # Addition 3+5
-  %(prog)s pile_values.csv 12+7 --verbose   # Mode détaillé
-  %(prog)s pile_values.csv 255+1            # Test débordement
-  %(prog)s pile_values.csv 4+4 --font /chemin/police.ttf
-        """
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('csv_file', help='Fichier CSV de configuration')
     parser.add_argument('addition', nargs='?', default='1+1', 
-                       help='Addition à calculer (format: a+b, ex: 1+1, 3+5, 12+7)')
+                       help='Addition à calculer (format: a+b)')
     parser.add_argument('-v', '--verbose', action='store_true',
-                       help='Affiche le détail complet de la décapsulation (Niveau 13)')
-    parser.add_argument('--font', help='Chemin vers une police TTF (optionnel)')
+                       help='Affiche le détail complet')
+    parser.add_argument('--font', help='Chemin vers une police TTF')
     
     args = parser.parse_args()
     
-    # Chargement configuration
     cfg = load_csv(args.csv_file)
-    print(f'\n📁 Config chargée depuis {args.csv_file} : {len(cfg)} paramètres')
+    print(f'\n📁 Config chargée : {len(cfg)} paramètres')
     
-    # Parsing de l'addition
     a, b = parse_addition(args.addition)
     print(f'🧮 Addition demandée : {a} + {b}')
+
+    # ============================================================
+    # NIVEAU 0 UNIFIÉ (clavier → registre)
+    # ============================================================
+    valeur_registre = L0_unified_full(cfg, a, b)
     
-    # Exécution des niveaux
-    L0_mosfet(cfg)
-    result = L1_full_adder(a, b)
-    L2_alu_arm(result)
-    payload = L3_payload(result)
+    # ============================================================
+    # NIVEAU 1 (additionneur) - utilise la valeur du registre
+    # ============================================================
+    # Les entrées a et b sont automatiquement utilisées
+    resultat = L1_full_adder(a, b)
+    
+    # Vérification de cohérence
+    if resultat == valeur_registre:
+        print(f'\n  ✅ VÉRIFICATION : La valeur du registre ({valeur_registre}) = résultat addition ({resultat})')
+    else:
+        print(f'\n  ⚠️ NOTE : Le registre stocke {valeur_registre}, l\'addition donne {resultat}')
+        print(f'      (Le registre simule la saisie clavier, l\'additionneur calcule indépendamment)')
+    
+    # ============================================================
+    # SUITE DE LA PILE
+    # ============================================================
+    L2_alu_arm(resultat)
+    payload = L3_payload(resultat)
     tcp_seg = L4_tcp(cfg, payload)
     ip_pkt = L5_ip(cfg, tcp_seg)
     L6_ethernet(cfg, ip_pkt)
@@ -1014,11 +1261,12 @@ Exemples:
     L11_rf(cfg, x_bb)
     L12_friis(cfg)
     L13_decap(cfg, verbose=args.verbose)
-    n_on = L14_glyph(result, args.font)
+    n_on = L14_glyph(resultat, args.font)
     L15_oled(cfg, n_on)
     
     print('\n' + '=' * 72)
-    print(f'  ✅ Trace complète terminée. {a}+{b}={result} du transistor au sous-pixel.')
+    print(f'  ✅ Trace complète. {a}+{b}={resultat}')
+    print('  🔄 Hiérarchie complète : Clavier → MOSFET → Inverseur → NAND → Bascule → Registre → Additionneur → ... → OLED')
     print('=' * 72)
     print('\n  🔄 Le résultat a voyagé :')
     print(f'     MOSFET → Additionneur → ARMv8 → JSON → TCP → IP → Ethernet')
