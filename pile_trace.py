@@ -3,22 +3,36 @@
 """
 pile_trace.py — Trace honnête de la pile LTE/NR du MOSFET à l'OLED.
 
-Différences vs version précédente :
-  • L0 cohérent : deux saisies (a, b), deux registres N bits, l'adder lit les deux.
-  • L2 ARMv8 : les MOV utilisent les vraies valeurs (plus de hardcoding #1).
-  • L7 MAC subheader : format R/F/E/LCID conforme TS 36.321 §6.1.2.
-  • L7 PDCP KDF : HMAC-SHA-256 conforme TS 33.401 Annexe A.7 (FC=0x15, P0=0x05).
-                  Les étapes upstream (CK/IK/K_ASME) sont étiquetées "simulées".
-  • L8 scrambling : vraie séquence de Gold LTE (TS 36.211 §7.2), Nc=1600.
-                    Le "codeur canal" reste un toy (triplage + tail) clairement étiqueté.
-  • L13 décap : round-trip réel sur les sorties TX intermédiaires, asserts par niveau.
-  • L14 glyph : multi-digit (un 8×8 par chiffre, juxtaposés).
-  • Plus de crash sur a+b ≥ 10.
+Version "real libs" : plus de stubs HMAC pour la sécurité, plus de codeur jouet.
+
+Dépendances additionnelles vs version précédente :
+    pip install CryptoMobile scikit-commpy
+(numpy, Pillow, pycryptodomex déjà requis)
+
+Remplacements "simulé → vrai" :
+  • MILENAGE f1-f5 (CryptoMobile.Milenage) : vraie chaîne K/RAND/SQN/OP → CK/IK/AK/RES
+    → K_ASME (TS 33.401 A.2) → K_eNB (A.3) → K_UPenc (A.7) — tous via HMAC-SHA-256
+    sur des dérivations 3GPP réelles, plus de string "k_asme_sim||".
+  • Codeur convolutif rate-1/3 (g=[13,15,17]₈) + Viterbi (commpy) — substitut
+    pédagogique au turbo 3GPP (TS 36.212 §5.1.3 : RSC×2 + QPP). Vraie lib,
+    vrai treillis, vrai BCJR-like decode. Le turbo réel demande QPP custom.
+  • LLR soft-demap 16-QAM (max-log-MAP, vraie formule) : démap dur ET soft.
+  • Canal AWGN configurable (--snr-db). Round-trip identité à SNR=∞ (défaut).
+  • Shockley OLED en L15 : I = Is·(exp(V/(n·VT)) − 1)
+  • PSS (Zadoff-Chu, TS 36.211 §6.11.1) générée en illustration (cell_id_2).
+
+Toujours hors scope (étiqueté) :
+  • Turbo 3GPP avec QPP interleaver (commpy a turbo mais sans QPP natif)
+  • SSS, CRS, DM-RS, PBCH, windowing OFDM
+  • Vrai RF Nyquist (DAC + filtre + mixer + PA + upconv analogique)
+  • Multipath, Doppler, shadowing log-normal
+  • Couches ≥ PDCP : RRC, NAS, scheduler, HARQ, mesures CQI/RSRP/RSRQ
 
 Usage :
     python3 pile_trace.py pile_values.csv 16+16
     python3 pile_trace.py pile_values.csv 4+4 --verbose
-    python3 pile_trace.py pile_values.csv 999+1 --check   # round-trip seul, exit code 0/1
+    python3 pile_trace.py pile_values.csv 999+1 --check
+    python3 pile_trace.py pile_values.csv 2+2 --snr-db 15  # AWGN actif
 """
 
 import argparse
@@ -32,6 +46,24 @@ import sys
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+
+# ---- Vraies libs (dépendances externes) ------------------------------------
+try:
+    from CryptoMobile.Milenage import Milenage, make_OPc
+except ImportError:
+    print("ERREUR: pip install CryptoMobile", file=sys.stderr); sys.exit(2)
+
+try:
+    from commpy.channelcoding import Trellis, conv_encode, viterbi_decode
+except ImportError:
+    print("ERREUR: pip install scikit-commpy", file=sys.stderr); sys.exit(2)
+
+try:
+    from Cryptodome.Cipher import AES
+    from Cryptodome.Util import Counter
+except ImportError:
+    print("ERREUR: pip install pycryptodomex", file=sys.stderr); sys.exit(2)
+
 
 # ============================================================================
 # UTILITAIRES
@@ -84,11 +116,29 @@ def ip_to_bytes(ip: str) -> bytes:
     return bytes(int(x) for x in ip.split('.'))
 
 
-# ----- LTE security ---------------------------------------------------------
+# ----- PLMN encoding (TS 24.008 §10.5.1.3) ---------------------------------
+
+def encode_plmn(mcc: str, mnc: str) -> bytes:
+    """Encode PLMN ID en 3 octets BCD swap-nibble.
+    Ex: MCC=208, MNC=01 → b'\\x02\\xf8\\x10' (MNC sur 2 digits, padding F)."""
+    m1, m2, m3 = int(mcc[0]), int(mcc[1]), int(mcc[2])
+    if len(mnc) == 2:
+        n1, n2 = int(mnc[0]), int(mnc[1])
+        n3 = 0xF
+    elif len(mnc) == 3:
+        n1, n2, n3 = int(mnc[0]), int(mnc[1]), int(mnc[2])
+    else:
+        raise ValueError(f"MNC longueur invalide: {mnc}")
+    octet1 = (m2 << 4) | m1
+    octet2 = (n3 << 4) | m3
+    octet3 = (n2 << 4) | n1
+    return bytes([octet1, octet2, octet3])
+
+
+# ----- LTE KDF (TS 33.220 §B.2.0, TS 33.401 Annexe A) ----------------------
 
 def kdf_hmac_sha256(key: bytes, fc: int, params: list) -> bytes:
-    """KDF générique TS 33.220 §B.2.0 utilisé par TS 33.401.
-    S = FC || P0 || L0 || P1 || L1 || ...
+    """KDF générique TS 33.220 §B.2.0. S = FC || P0 || L0 || P1 || L1 || ...
     Retourne HMAC-SHA-256(key, S) (32 octets)."""
     s = bytes([fc])
     for p in params:
@@ -98,17 +148,58 @@ def kdf_hmac_sha256(key: bytes, fc: int, params: list) -> bytes:
     return hmac.new(key, s, hashlib.sha256).digest()
 
 
+def derive_k_asme(ck: bytes, ik: bytes, plmn_id: bytes, sqn_xor_ak: bytes) -> bytes:
+    """TS 33.401 A.2 : K_ASME = HMAC-SHA-256(CK||IK, 0x10 || PLMN || L || (SQN⊕AK) || L)
+    Retourne 32 octets (le keystream complet est K_ASME)."""
+    assert len(plmn_id) == 3 and len(sqn_xor_ak) == 6
+    return kdf_hmac_sha256(ck + ik, 0x10, [plmn_id, sqn_xor_ak])
+
+
+def derive_k_enb(k_asme: bytes, nas_ul_count: int) -> bytes:
+    """TS 33.401 A.3 : K_eNB = HMAC-SHA-256(K_ASME, 0x11 || NAS_UL_COUNT || L)
+    NAS_UL_COUNT sur 4 octets big-endian."""
+    return kdf_hmac_sha256(k_asme, 0x11, [struct.pack('>I', nas_ul_count)])
+
+
 def derive_k_upenc(k_enb: bytes, eea_id: int = 1) -> bytes:
-    """K_eNB → K_UPenc, TS 33.401 Annexe A.7.
-    FC=0x15, P0=algo type distinguisher (0x05 = UP-enc), P1=algo identity (EEA1=1).
+    """TS 33.401 A.7 : algorithm key derivation.
+    FC=0x15, P0=algo type (0x05 = UP-enc), P1=algo identity (EEA1=1, EEA2=2).
     Sortie tronquée aux 128 LSB."""
     full = kdf_hmac_sha256(k_enb, 0x15, [bytes([0x05]), bytes([eea_id])])
     return full[16:]  # 128 LSB
 
 
+def lte_aka_full_chain(K: bytes, OP: bytes, RAND: bytes, SQN: bytes,
+                       AMF: bytes, plmn_id: bytes, nas_ul_count: int,
+                       eea_id: int = 1) -> dict:
+    """Chaîne AKA + key derivation complète, retourne tous les intermédiaires.
+    
+    Étapes :
+      1. Milenage f1..f5  → MAC-A, RES, CK, IK, AK     [CryptoMobile]
+      2. AUTN = (SQN⊕AK) || AMF || MAC-A
+      3. K_ASME ← KDF(CK||IK, PLMN, SQN⊕AK)            [TS 33.401 A.2]
+      4. K_eNB  ← KDF(K_ASME, NAS_UL_COUNT)            [TS 33.401 A.3]
+      5. K_UPenc ← KDF(K_eNB, UP-enc, EEA_id)[128 LSB] [TS 33.401 A.7]
+    """
+    mil = Milenage(OP)
+    mac_a = mil.f1(K, RAND, SQN, AMF)
+    RES, CK, IK, AK = mil.f2345(K, RAND)
+    sqn_xor_ak = bytes(a ^ b for a, b in zip(SQN, AK))
+    autn = sqn_xor_ak + AMF + mac_a
+    k_asme = derive_k_asme(CK, IK, plmn_id, sqn_xor_ak)
+    k_enb = derive_k_enb(k_asme, nas_ul_count)
+    k_upenc = derive_k_upenc(k_enb, eea_id)
+    return {
+        'mac_a': mac_a, 'RES': RES, 'CK': CK, 'IK': IK, 'AK': AK,
+        'autn': autn, 'sqn_xor_ak': sqn_xor_ak,
+        'k_asme': k_asme, 'k_enb': k_enb, 'k_upenc': k_upenc,
+    }
+
+
+# ----- Séquence de Gold LTE (TS 36.211 §7.2) -------------------------------
+
 def lte_gold_sequence(cinit: int, length: int) -> np.ndarray:
-    """Séquence de Gold LTE longueur-31 (TS 36.211 §7.2), Nc=1600.
-    x1(0)=1, x1(n)=0 pour n=1..30 ; x2 initialisé depuis cinit."""
+    """Séquence de Gold LTE longueur-31 (TS 36.211 §7.2), Nc=1600."""
     Nc = 1600
     L = length + Nc + 31
     x1 = np.zeros(L, dtype=np.uint8)
@@ -123,6 +214,131 @@ def lte_gold_sequence(cinit: int, length: int) -> np.ndarray:
     for n in range(length):
         c[n] = x1[n + Nc] ^ x2[n + Nc]
     return c
+
+
+# ----- PSS Zadoff-Chu (TS 36.211 §6.11.1) ----------------------------------
+
+def pss_zadoff_chu(n_id_2: int) -> np.ndarray:
+    """Génère le PSS (Primary Synchronization Signal) LTE.
+    Longueur 63 (62 utiles + DC), Zadoff-Chu avec u ∈ {25, 29, 34} selon n_id_2."""
+    u_map = {0: 25, 1: 29, 2: 34}
+    if n_id_2 not in u_map:
+        raise ValueError("n_id_2 doit être 0, 1 ou 2")
+    u = u_map[n_id_2]
+    d = np.zeros(62, dtype=complex)
+    for n in range(31):
+        d[n] = np.exp(-1j * np.pi * u * n * (n + 1) / 63)
+    for n in range(31, 62):
+        d[n] = np.exp(-1j * np.pi * u * (n + 1) * (n + 2) / 63)
+    return d
+
+
+# ----- Codeur convolutif (substitut pédagogique au turbo) ------------------
+
+# Rate 1/3, K=4 (memory=3), G=(13,15,17)₈
+_CONV_TRELLIS = Trellis(np.array([3]), np.array([[0o13, 0o15, 0o17]]))
+_CONV_RATE_DENOM = 3
+_CONV_TAIL = 3  # memory bits flushed
+
+
+def conv_encode_lte_like(tb_bits: np.ndarray) -> np.ndarray:
+    """Encode TB en rate-1/3 convolutif. Retourne array binaire."""
+    return conv_encode(tb_bits.astype(int), _CONV_TRELLIS).astype(np.uint8)
+
+
+def conv_decode_lte_like(coded: np.ndarray, tb_bit_len: int,
+                          decoding_type: str = 'hard') -> np.ndarray:
+    """Viterbi decode. coded en hard bits ou LLRs (selon decoding_type).
+    Retourne les premiers tb_bit_len bits (tronque le tail de Viterbi)."""
+    if decoding_type == 'hard':
+        decoded = viterbi_decode(coded.astype(float), _CONV_TRELLIS,
+                                  tb_depth=15, decoding_type='hard')
+    else:
+        decoded = viterbi_decode(coded.astype(float), _CONV_TRELLIS,
+                                  tb_depth=15, decoding_type='unquantized')
+    return decoded[:tb_bit_len].astype(np.uint8)
+
+
+# ----- 16-QAM (TS 36.211 §7.1.3) -------------------------------------------
+
+SQRT10 = np.sqrt(10)
+
+
+def qam16_map(bits: np.ndarray) -> np.ndarray:
+    """Mapping Gray 3GPP normalisé √10. 4 bits → 1 symbole."""
+    bits = bits.astype(np.int32)
+    n_sym = len(bits) // 4
+    sym = np.zeros(n_sym, dtype=complex)
+    for k in range(n_sym):
+        b0, b1, b2, b3 = (int(bits[4 * k + i]) for i in range(4))
+        i_real = (1 - 2 * b0) * (2 - (1 - 2 * b2))
+        q_imag = (1 - 2 * b1) * (2 - (1 - 2 * b3))
+        sym[k] = (i_real + 1j * q_imag) / SQRT10
+    return sym
+
+
+def qam16_demap_hard(symbols: np.ndarray) -> np.ndarray:
+    """Démap dur (4 bits par symbole). Mapping inverse de qam16_map."""
+    bits = np.zeros(len(symbols) * 4, dtype=np.uint8)
+    for k, s in enumerate(symbols):
+        re = s.real * SQRT10
+        im = s.imag * SQRT10
+        bits[4 * k + 0] = 1 if re < 0 else 0          # b0 (sign I)
+        bits[4 * k + 1] = 1 if im < 0 else 0          # b1 (sign Q)
+        bits[4 * k + 2] = 1 if abs(re) > 2 else 0     # b2 (|I| loin)
+        bits[4 * k + 3] = 1 if abs(im) > 2 else 0     # b3 (|Q| loin)
+    return bits
+
+
+def qam16_demap_soft(symbols: np.ndarray, noise_var: float = 1.0) -> np.ndarray:
+    """Démap soft max-log-MAP : LLR par bit. Convention : LLR>0 ⇔ bit=0.
+    
+    Pour Gray 16-QAM normalisé √10 avec {±1, ±3} en composante :
+      LLR(b0) ≈ (4·I/√10) / σ²              (sign de I)
+      LLR(b1) ≈ (4·Q/√10) / σ²              (sign de Q)
+      LLR(b2) ≈ (4·(2−|I|·√10)) / (√10·σ²)  (proximité de l'axe en I)
+      LLR(b3) ≈ (4·(2−|Q|·√10)) / (√10·σ²)
+    """
+    n = len(symbols)
+    llr = np.zeros(n * 4)
+    inv_sigma2 = 1.0 / max(noise_var, 1e-12)
+    for k, s in enumerate(symbols):
+        I = s.real * SQRT10  # dé-normalisé : composantes attendues {±1, ±3}
+        Q = s.imag * SQRT10
+        llr[4 * k + 0] = 4 * I * inv_sigma2 / SQRT10
+        llr[4 * k + 1] = 4 * Q * inv_sigma2 / SQRT10
+        llr[4 * k + 2] = 4 * (2 - abs(I)) * inv_sigma2 / SQRT10
+        llr[4 * k + 3] = 4 * (2 - abs(Q)) * inv_sigma2 / SQRT10
+    return llr
+
+
+# ----- Canal AWGN ----------------------------------------------------------
+
+def awgn_channel(signal: np.ndarray, snr_db: float,
+                  signal_power: float = None, seed: int = 42) -> tuple:
+    """AWGN sur signal complexe. Retourne (signal_noisy, noise_var)."""
+    if snr_db >= 300:  # SNR ~ infini
+        return signal.copy(), 0.0
+    if signal_power is None:
+        signal_power = np.mean(np.abs(signal) ** 2)
+    snr_lin = 10 ** (snr_db / 10)
+    noise_var = signal_power / snr_lin
+    rng = np.random.default_rng(seed)
+    if np.iscomplexobj(signal):
+        n = (rng.standard_normal(len(signal)) +
+             1j * rng.standard_normal(len(signal))) * np.sqrt(noise_var / 2)
+    else:
+        n = rng.standard_normal(len(signal)) * np.sqrt(noise_var)
+    return signal + n, noise_var
+
+
+# ----- Diode Shockley (OLED) -----------------------------------------------
+
+def shockley_current(V: float, Is: float = 1e-12, n_diode: float = 2.0,
+                      VT: float = 0.02585) -> float:
+    """I = Is·(exp(V/(n·VT)) − 1). VT = kT/q ≈ 25.85 mV à 300 K.
+    n_diode (ideality factor) typique 1.5-2.5 pour OLED."""
+    return Is * (np.exp(V / (n_diode * VT)) - 1)
 
 
 # ============================================================================
@@ -148,6 +364,12 @@ def load_csv(path: str) -> dict:
                         cfg[k] = float(v)
                     except ValueError:
                         cfg[k] = v
+    # Défauts pour les nouvelles clés (test vectors TS 35.207 §4.3.1 set 1)
+    cfg.setdefault('rand', '23553CBE9637A89D218AE64DAE47BF35')
+    cfg.setdefault('sqn', 'FF9BB4D0B607')
+    cfg.setdefault('op', 'CDC202D5123E20F62B6D676AC72CB318')
+    cfg.setdefault('nas_ul_count', 0)
+    cfg.setdefault('eea_id', 1)
     return cfg
 
 
@@ -156,13 +378,12 @@ def load_csv(path: str) -> dict:
 # ============================================================================
 
 def L0_mosfet_eq(cfg: dict, label: str) -> dict:
-    """Équations MOSFET NMOS pour une transition logique high→low."""
     VDD = cfg['vdd_core_v']
     Vth = cfg['mosfet_vth_v']
     mu_Cox = cfg['mosfet_mu_cox_uA_V2']
     WL = cfg['mosfet_WL']
     Cload = cfg['mosfet_cload_F']
-    Vgs = 3.3  # tension clavier (signal d'entrée numérique)
+    Vgs = 3.3
     Id_sat = 0.5 * mu_Cox * WL * (Vgs - Vth) ** 2
     Ron = VDD / Id_sat
     Eswitch = 0.5 * Cload * VDD ** 2
@@ -173,10 +394,9 @@ def L0_mosfet_eq(cfg: dict, label: str) -> dict:
 
 
 def L0_inverter_eq(cfg: dict, mosfet: dict, label: str) -> None:
-    """Inverseur CMOS : délais t_rise, t_fall."""
     Cload = cfg['mosfet_cload_F']
     Ron_n = mosfet['ron']
-    Ron_p = Ron_n * 2.5  # PMOS typiquement 2-3× plus résistif
+    Ron_p = Ron_n * 2.5
     t_rise = 2.2 * Ron_p * Cload
     t_fall = 2.2 * Ron_n * Cload
     print(f'  ▶ Inverseur CMOS ({label}) : VDD={mosfet["vdd"]} V')
@@ -184,7 +404,6 @@ def L0_inverter_eq(cfg: dict, mosfet: dict, label: str) -> None:
 
 
 def L0_nand_reference() -> None:
-    """Référence : porte NAND comme primitive universelle (montrée une fois)."""
     print('\n  ── Référence : porte NAND (primitive universelle) ──')
     print('     A B │ Y=NAND(A,B)')
     print('     ────┼────────────')
@@ -196,11 +415,8 @@ def L0_nand_reference() -> None:
 
 
 def L0_keypress(cfg: dict, value: int, label: str, full_chain: bool) -> dict:
-    """Saisie d'une opérande : touche → registre N bits.
-    full_chain=True montre la chaîne complète (MOSFET, inverseur, debounce).
-    full_chain=False montre la version condensée (pour la 2e opérande)."""
     char_repr = str(value)
-    last_digit = char_repr[-1]  # pour l'illustration ASCII / matrice
+    last_digit = char_repr[-1]
     ascii_code = ord(last_digit)
     n_bits = max(value.bit_length(), 1)
     bits = [(value >> i) & 1 for i in range(n_bits - 1, -1, -1)]
@@ -219,7 +435,6 @@ def L0_keypress(cfg: dict, value: int, label: str, full_chain: bool) -> dict:
         I = 0.5 * cfg['mosfet_mu_cox_uA_V2'] * cfg['mosfet_WL'] * (3.3 - cfg['mosfet_vth_v']) ** 2
         print(f'  │  MOSFET passant (I_D ≈ {I * 1e6:.0f} µA) → inverseur (t_d ≈ ps) → idem')
 
-    # Registre N bits (N bascules D parallèles)
     print(f'  │  Registre {n_bits}× bascule D master-slave (front montant 1 GHz) :')
     print(f'  │     Q[{n_bits - 1}..0] = {bits_str}  (valeur stockée : {value})')
     f_clk = 1e9
@@ -232,7 +447,6 @@ def L0_keypress(cfg: dict, value: int, label: str, full_chain: bool) -> dict:
 
 
 def L0_unified(cfg: dict, a: int, b: int) -> tuple:
-    """Niveau 0 complet : deux saisies → R_A et R_B → entrées de l'additionneur."""
     banner('NIVEAU 0 — Saisie clavier → deux registres (chaîne physique)')
     print('  Architecture (par opérande) :')
     print('    Touche → Debounce → MOSFET → Inverseur CMOS → Bascule D × N → Registre')
@@ -256,9 +470,8 @@ def L0_unified(cfg: dict, a: int, b: int) -> tuple:
 # ============================================================================
 
 def L1_full_adder(reg_a: dict, reg_b: dict) -> int:
-    """Lit R_A et R_B, additionne bit à bit avec retenue."""
     a, b = reg_a['value'], reg_b['value']
-    n_bits = max(a.bit_length(), b.bit_length(), 1) + 1  # +1 pour la retenue
+    n_bits = max(a.bit_length(), b.bit_length(), 1) + 1
 
     banner(f'NIVEAU 1 — Full adder : R_A + R_B = {a} + {b}')
     print(f'  Opérandes lues depuis L0 : R_A={a}, R_B={b}')
@@ -289,14 +502,10 @@ def L1_full_adder(reg_a: dict, reg_b: dict) -> int:
 # ============================================================================
 
 def L2_alu_arm(a: int, b: int, result: int) -> None:
-    """ADD avec les vraies valeurs."""
     banner('NIVEAU 2 — Instruction ARMv8 ADD')
     print(f'  MOV  W0, #{a:<10d} ; W0 = 0x{a & 0xFFFFFFFF:08X}')
     print(f'  MOV  W1, #{b:<10d} ; W1 = 0x{b & 0xFFFFFFFF:08X}')
     print(f'  ADD  W2, W0, W1        ; W2 = 0x{result & 0xFFFFFFFF:08X}')
-    # Encodage ADD (shifted register), Rd=W2, Rn=W0, Rm=W1, shift=LSL #0
-    # ARMv8 A64 : 0sf_0_0_01011_shift(2)_0_Rm(5)_imm6(6)_Rn(5)_Rd(5)
-    # sf=0 (32-bit), opc=00 (ADD), S=0, shift=00, imm6=0, Rm=1, Rn=0, Rd=2
     enc = (0 << 31) | (0 << 30) | (0 << 29) | (0b01011 << 24) | (0 << 22) | \
           (0 << 21) | (1 << 16) | (0 << 10) | (0 << 5) | 2
     print(f'  Encodage 32 bits : 0x{enc:08X}')
@@ -323,7 +532,7 @@ def L4_tcp(cfg: dict, payload: bytes) -> bytes:
     banner('NIVEAU 4 — Segment TCP')
     sport, dport = cfg['src_port'], cfg['dst_port']
     seq, ack = cfg['tcp_seq'], cfg['tcp_ack']
-    data_off, flags = 5, 0x18  # PSH+ACK
+    data_off, flags = 5, 0x18
     window = cfg['tcp_window']
     tcp_no_csum = struct.pack('>HHIIBBHHH', sport, dport, seq, ack,
                               data_off << 4, flags, window, 0, 0)
@@ -385,45 +594,61 @@ def L6_ethernet(cfg: dict, ip_packet: bytes) -> bytes:
 
 
 # ============================================================================
-# NIVEAU 7 — LTE RAN (PDCP / RLC / MAC / CRC)
+# NIVEAU 7 — LTE RAN avec vraie chaîne Milenage
 # ============================================================================
 
 def L7_lte_ran(cfg: dict, ip_packet: bytes) -> tuple:
-    """Retourne (transport_block, k_upenc, count) — k_upenc et count nécessaires pour L13."""
-    banner('NIVEAU 7 — Pile RAN LTE Uu : PDCP / RLC / MAC / CRC')
+    """Retourne (transport_block, k_upenc, count) — keys et count utiles pour L13."""
+    banner('NIVEAU 7 — Pile RAN LTE Uu : Milenage AKA + PDCP / RLC / MAC / CRC')
 
-    print(f'  Paramètres sécurité (TS 33.401) :')
-    print(f'    IMSI = {cfg["imsi"]} ; AMF = 0x{int(str(cfg["amf"]), 16):04X}')
-    print(f'    K   = {cfg["k"]}')
-    print(f'    OPC = {cfg["opc"]}')
+    # --- Paramètres AKA ----------------------------------------------------
+    K = bytes.fromhex('10112233445566778899AABBCCDDEEFF')
+    OP = bytes.fromhex(cfg['op'])
+    RAND = bytes.fromhex(cfg['rand'])
+    SQN = bytes.fromhex(cfg['sqn'])
+    AMF = int(str(cfg['amf']), 16).to_bytes(2, 'big')
+
+    imsi_str = str(cfg['imsi'])
+    mcc, mnc = imsi_str[:3], imsi_str[3:5]
+    plmn_id = encode_plmn(mcc, mnc)
+
+    print(f'  Paramètres sécurité (TS 33.401, vraie chaîne Milenage) :')
+    print(f'    IMSI = {imsi_str}  (MCC={mcc}, MNC={mnc} → PLMN={plmn_id.hex()})')
+    print(f'    K    = {K.hex()}')
+    print(f'    OP   = {OP.hex()}')
+    print(f'    OPC  = {make_OPc(K, OP).hex()}  ← AES_K(OP) ⊕ OP')
+    print(f'    RAND = {RAND.hex()}')
+    print(f'    SQN  = {SQN.hex()}    AMF = {AMF.hex()}')
     print(f'    RNTI = 0x{cfg["rnti"]:04X}\n')
 
-    # --- KDF chain (upstream simulé, dernière étape réelle) ----------------
-    k_bytes = bytes.fromhex(cfg['k'])
-    # K_ASME et K_eNB simulés (pour rester < 1000 lignes — vraie chaîne :
-    # MILENAGE f3/f4 sur (K,RAND,OPC) → CK,IK → K_ASME → K_eNB).
-    # On les dérive ici via HMAC déterministe à partir de K, pour l'illustration.
-    k_asme = hmac.new(k_bytes, b'k_asme_sim||' + str(cfg['imsi']).encode(),
-                      hashlib.sha256).digest()
-    k_enb = hmac.new(k_asme, b'k_enb_sim||uplink_count=0', hashlib.sha256).digest()
-    # K_UPenc : vraie KDF TS 33.401 A.7 (FC=0x15, P0=0x05, P1=EEA1=1)
-    k_upenc = derive_k_upenc(k_enb, eea_id=1)
+    # --- Vraie chaîne complète ---------------------------------------------
+    aka = lte_aka_full_chain(K, OP, RAND, SQN, AMF, plmn_id,
+                              cfg['nas_ul_count'], cfg['eea_id'])
 
-    print(f'  KDF chain (upstream simulé, K_UPenc = vraie A.7) :')
-    print(f'    K_ASME (sim)  = {k_asme.hex()}')
-    print(f'    K_eNB  (sim)  = {k_enb.hex()}')
-    print(f'    K_UPenc (A.7) = {k_upenc.hex()}  ← HMAC-SHA-256, FC=0x15, P0=0x05, P1=0x01\n')
+    print(f'  Étape 1 — Milenage (CryptoMobile) :')
+    print(f'    MAC-A = {aka["mac_a"].hex()}  ← f1(K, RAND, SQN, AMF)')
+    print(f'    RES   = {aka["RES"].hex()}              ← f2')
+    print(f'    CK    = {aka["CK"].hex()}  ← f3')
+    print(f'    IK    = {aka["IK"].hex()}  ← f4')
+    print(f'    AK    = {aka["AK"].hex()}                       ← f5')
+    print(f'  Étape 2 — AUTN = (SQN⊕AK) || AMF || MAC-A :')
+    print(f'    SQN⊕AK = {aka["sqn_xor_ak"].hex()}')
+    print(f'    AUTN   = {aka["autn"].hex()}')
+    print(f'  Étape 3 — K_ASME (TS 33.401 A.2, FC=0x10) :')
+    print(f'    {aka["k_asme"].hex()}')
+    print(f'  Étape 4 — K_eNB (A.3, FC=0x11, NAS_UL_COUNT={cfg["nas_ul_count"]}) :')
+    print(f'    {aka["k_enb"].hex()}')
+    print(f'  Étape 5 — K_UPenc (A.7, FC=0x15, P0=0x05, P1=EEA{cfg["eea_id"]}) [128 LSB] :')
+    print(f'    {aka["k_upenc"].hex()}\n')
 
-    # --- PDCP : header 2 octets + payload chiffré AES-128 CTR --------------
-    from Cryptodome.Cipher import AES
-    from Cryptodome.Util import Counter
+    k_upenc = aka['k_upenc']
 
+    # --- PDCP : header 2 octets + AES-128 CTR ------------------------------
     pdcp_sn = 0x123
-    pdcp_hdr = struct.pack('>H', pdcp_sn & 0x0FFF)  # D/C=0, SN[11:0]
+    pdcp_hdr = struct.pack('>H', pdcp_sn & 0x0FFF)
     hfn = 0x0000
-    count = (hfn << 12) | pdcp_sn  # COUNT = HFN || SN (TS 36.323 §6.2)
+    count = (hfn << 12) | pdcp_sn
 
-    # AES-CTR : IV construit depuis COUNT (simplifié : COUNT || zeros)
     ctr = Counter.new(128, initial_value=count << 96, little_endian=False)
     cipher = AES.new(k_upenc, AES.MODE_CTR, counter=ctr)
     pdcp_payload = cipher.encrypt(ip_packet)
@@ -433,19 +658,16 @@ def L7_lte_ran(cfg: dict, ip_packet: bytes) -> tuple:
     print(f'  AES-128-CTR chiffrement → PDU {len(pdcp_pdu)} octets :')
     print(hexdump(pdcp_pdu, '    '))
 
-    # --- RLC UM (TS 36.322 §6.2.1.4) : header 2 octets ---------------------
+    # --- RLC UM ------------------------------------------------------------
     rlc_sn = pdcp_sn & 0x3FF
-    rlc_hdr = struct.pack('>H', rlc_sn & 0x03FF)  # FI=00, E=0, SN[9:0]
+    rlc_hdr = struct.pack('>H', rlc_sn & 0x03FF)
     rlc_pdu = rlc_hdr + pdcp_pdu
     print(f'\n  RLC UM : SN=0x{rlc_sn:03X}, PDU {len(rlc_pdu)} octets')
 
-    # --- MAC subheader TS 36.321 §6.1.2 -----------------------------------
-    # Format avec L variable : 2 octets si L<128, 3 octets si L>=128.
-    # Octet 0 : R(1) | R(1) | E(1) | LCID(5)  — E=0 (dernier subheader)
-    # Octet 1 : F(1) | L(7)  ou  F(1) | L_hi(7) puis L_lo(8)
-    lcid = 0x01  # DTCH
+    # --- MAC subheader TS 36.321 §6.1.2 ------------------------------------
+    lcid = 0x01
     L = len(rlc_pdu)
-    e = 0  # dernier subheader
+    e = 0
     if L < 128:
         mac_hdr = bytes([(0 << 7) | (0 << 6) | (e << 5) | (lcid & 0x1F),
                          (0 << 7) | (L & 0x7F)])
@@ -458,7 +680,7 @@ def L7_lte_ran(cfg: dict, ip_packet: bytes) -> tuple:
     print(f'    octets header = {mac_hdr.hex()}  (R=0 F={"1" if L>=128 else "0"} E={e} LCID=0x{lcid:02X})')
     print(f'    PDU {len(mac_pdu)} octets')
 
-    # --- CRC-24A et Transport Block ----------------------------------------
+    # --- CRC-24A et TB -----------------------------------------------------
     crc = crc24a(mac_pdu)
     tb = mac_pdu + crc.to_bytes(3, 'big')
     print(f'\n  CRC-24A = 0x{crc:06X}')
@@ -469,98 +691,56 @@ def L7_lte_ran(cfg: dict, ip_packet: bytes) -> tuple:
 
 
 # ============================================================================
-# NIVEAU 8 — Codage canal (toy + vrai scrambling LTE)
+# NIVEAU 8 — Codage canal CONVOLUTIF (commpy) + scrambling LTE
 # ============================================================================
 
-def toy_channel_encoder(tb_bits: np.ndarray, target_len: int) -> np.ndarray:
-    """
-    Codeur canal jouet : code de répétition (tile + truncate/pad).
-    NB : pas un vrai codeur turbo 3GPP. Le vrai (TS 36.212 §5.1.3) nécessite
-    deux RSC parallèles avec entrelaceur QPP, hors scope ici.
-    Round-trip identité garanti sans canal (la 1ère copie est intacte).
-    """
-    n = len(tb_bits)
-    reps = (target_len + n - 1) // n  # ceil
-    return np.tile(tb_bits, reps)[:target_len].copy()
-
-
-def toy_channel_decoder(coded: np.ndarray, tb_bit_len: int) -> np.ndarray:
-    """Inverse : récupère la 1ère copie (sans bruit, elle est intacte).
-    Avec un vrai canal bruité : faire majority vote sur les copies complètes."""
-    return coded[:tb_bit_len].copy()
-
-
 def L8_phy_coding(cfg: dict, tb: bytes) -> tuple:
-    """Retourne (scrambled_bits, scrambling_seq, tb_bit_len) pour L13."""
-    banner('NIVEAU 8 — Codage canal (toy) + scrambling LTE (réel TS 36.211 §7.2)')
+    """Encodage convolutif rate-1/3 + scrambling Gold LTE.
+    Retourne (scrambled_bits, scrambling_seq, tb_bit_len, coded_len, n_prb_used)."""
+    banner('NIVEAU 8 — Codage convolutif rate-1/3 (commpy) + scrambling Gold (TS 36.211 §7.2)')
 
     tb_bits = np.unpackbits(np.frombuffer(tb, dtype=np.uint8))
     tb_bit_len = len(tb_bits)
 
-    n_prb = cfg['n_prb']
-    n_re = n_prb * 12 * 12
-    bits_per_symbol = 4
-    bits_avail = n_re * bits_per_symbol  # 1152 pour 2 PRB
+    # --- Encodage convolutif (vraie lib) -----------------------------------
+    coded = conv_encode_lte_like(tb_bits)
+    coded_len = len(coded)
+    rate = tb_bit_len / coded_len
+    print(f'  Codeur convolutif : g=(13,15,17)₈, K=4, rate=1/3')
+    print(f'  TB = {tb_bit_len} bits → coded = {coded_len} bits (rate effectif {rate:.3f})')
+    print(f'  ⚠️  Substitut pédagogique au turbo 3GPP (TS 36.212 §5.1.3, RSC×2 + QPP).')
+    print(f'      Même principe à treillis ; vraie lib (commpy) ; Viterbi en RX.\n')
 
-    coded = toy_channel_encoder(tb_bits, bits_avail)
-    print(f'  TB = {tb_bit_len} bits → codeur toy (répétition) → rate-match → {bits_avail} bits')
-    print(f'  ⚠️  Codeur turbo réel (TS 36.212 §5.1.3) : RSC×2 + QPP — hors scope.')
-    print(f'      Étiquetage explicite : ce script garantit round-trip identité sans bruit.\n')
+    # --- Dimensionnement dynamique du grid PRB -----------------------------
+    # On choisit n_prb pour que bits_avail = n_prb * 144 * 4 ≥ coded_len, puis on pad.
+    bits_per_prb = 144 * 4  # 144 REs × 4 bits/symbole (16-QAM)
+    n_prb = max(1, (coded_len + bits_per_prb - 1) // bits_per_prb)
+    bits_avail = n_prb * bits_per_prb
+    n_pad = bits_avail - coded_len
+    padded = np.concatenate([coded, np.zeros(n_pad, dtype=np.uint8)])
+    print(f'  Dimensionnement grid : n_prb={n_prb} (forcé par coded_len), '
+          f'bits_avail={bits_avail}, padding={n_pad}')
 
-    # Scrambling LTE réel
-    # c_init = nRNTI·2^14 + q·2^13 + ⌊ns/2⌋·2^9 + N_cell_ID (PDSCH, TS 36.211 §6.3.1)
+    # --- Scrambling Gold ---------------------------------------------------
     cinit = (cfg['rnti'] << 14) | (0 << 13) | (cfg['subframe'] << 9) | cfg['pci']
     scrambling = lte_gold_sequence(cinit, bits_avail)
-    scrambled = coded ^ scrambling
+    scrambled = padded ^ scrambling
 
-    print(f'  Scrambling LTE Gold (TS 36.211 §7.2), Nc=1600 :')
+    print(f'  Scrambling LTE Gold (Nc=1600) :')
     print(f'    c_init = 0x{cinit:08X}  (RNTI=0x{cfg["rnti"]:04X}, subframe={cfg["subframe"]}, PCI={cfg["pci"]})')
-    print(f'    Premiers 32 bits de la séquence : {"".join(map(str, scrambling[:32]))}')
-    print(f'    Premiers 32 bits scramblés      : {"".join(map(str, scrambled[:32]))}')
+    print(f'    Premiers 32 bits scramblés : {"".join(map(str, scrambled[:32]))}')
 
-    return scrambled, scrambling, tb_bit_len
+    return scrambled, scrambling, tb_bit_len, coded_len, n_prb
 
 
 # ============================================================================
-# NIVEAU 9 — Mapping 16-QAM (TS 36.211 §7.1.3)
+# NIVEAU 9 — Mapping 16-QAM
 # ============================================================================
-
-# Mapping Gray normalisé par √10 : I = (1-2b0)(2-(1-2b2)), Q = (1-2b1)(2-(1-2b3))
-SQRT10 = np.sqrt(10)
-
-
-def qam16_map(bits: np.ndarray) -> np.ndarray:
-    """4 bits → 1 symbole complexe normalisé."""
-    bits = bits.astype(np.int32)
-    n_sym = len(bits) // 4
-    sym = np.zeros(n_sym, dtype=complex)
-    for k in range(n_sym):
-        b0, b1, b2, b3 = (int(bits[4 * k + i]) for i in range(4))
-        i_real = (1 - 2 * b0) * (2 - (1 - 2 * b2))
-        q_imag = (1 - 2 * b1) * (2 - (1 - 2 * b3))
-        sym[k] = (i_real + 1j * q_imag) / SQRT10
-    return sym
-
-
-def qam16_demap_hard(symbols: np.ndarray) -> np.ndarray:
-    """Démap dur (sans bruit) : récupère 4 bits par symbole.
-    Mapping inverse de qam16_map : b2=1 quand |I·√10|=3 (loin), b2=0 quand =1 (proche)."""
-    bits = np.zeros(len(symbols) * 4, dtype=np.uint8)
-    for k, s in enumerate(symbols):
-        re = s.real * SQRT10
-        im = s.imag * SQRT10
-        b0 = 1 if re < 0 else 0
-        b1 = 1 if im < 0 else 0
-        b2 = 1 if abs(re) > 2 else 0
-        b3 = 1 if abs(im) > 2 else 0
-        bits[4 * k:4 * k + 4] = [b0, b1, b2, b3]
-    return bits
-
 
 def L9_qam16(scrambled: np.ndarray) -> np.ndarray:
-    banner('NIVEAU 9 — Mapping 16-QAM (TS 36.211 §7.1.3)')
+    banner('NIVEAU 9 — Mapping 16-QAM (TS 36.211 §7.1.3, Gray normalisé √10)')
     symbols = qam16_map(scrambled)
-    print(f'  {len(symbols)} symboles 16-QAM (Gray, normalisés par √10)')
+    print(f'  {len(symbols)} symboles 16-QAM')
     print('  Premiers 8 symboles :')
     for k in range(min(8, len(symbols))):
         b = ''.join(str(int(scrambled[4 * k + i])) for i in range(4))
@@ -568,45 +748,83 @@ def L9_qam16(scrambled: np.ndarray) -> np.ndarray:
         print(f'    [{k}] bits={b} → s = {s.real:+.4f} {s.imag:+.4f}j  |s|={abs(s):.4f}')
     mean_power = np.mean(np.abs(symbols) ** 2)
     print(f'  E[|s|²] = {mean_power:.4f}  (cible 1.0)')
+
+    # Démo LLR sur les premiers symboles (soft demap réel)
+    print('\n  Démo soft demap (max-log-MAP, σ²=1) — LLRs des 4 premiers symboles :')
+    llrs_demo = qam16_demap_soft(symbols[:4], noise_var=1.0)
+    for k in range(4):
+        l = llrs_demo[4 * k:4 * k + 4]
+        print(f'    [{k}] LLR(b0..b3) = [{l[0]:+7.3f}, {l[1]:+7.3f}, {l[2]:+7.3f}, {l[3]:+7.3f}]'
+              f'  → bits durs = {[int(x < 0) for x in l]}')
     return symbols
+
+
+# ============================================================================
+# NIVEAU 9.5 — PSS (illustration, non injecté dans l'OFDM)
+# ============================================================================
+
+def L9p5_pss_demo(cfg: dict) -> None:
+    banner('NIVEAU 9.5 — PSS Zadoff-Chu (TS 36.211 §6.11.1) — illustration')
+    n_id_2 = cfg.get('n_id_2', cfg['pci'] % 3)
+    pss = pss_zadoff_chu(n_id_2)
+    print(f'  N_ID_2 = {n_id_2}  (PCI={cfg["pci"]} mod 3) → u = {{25,29,34}}[{n_id_2}]')
+    print(f'  Séquence Zadoff-Chu longueur 62 (E[|d|²] = {np.mean(np.abs(pss)**2):.4f})')
+    print(f'  Auto-corrélation circulaire (peak/sidelobe) :')
+    ac = np.abs(np.fft.ifft(np.abs(np.fft.fft(pss))**2))
+    peak = ac[0]
+    sidelobe = np.max(ac[1:])
+    print(f'    peak = {peak:.3f}, max sidelobe = {sidelobe:.3f}, ratio = {peak/sidelobe:.2f}')
+    print(f'  Premiers 4 échantillons : {pss[:4]}')
+    print(f'  ⚠️  Non injecté dans l\'OFDM ici (placement réel : SC 0..30, 32..62 du slot 0/10).')
 
 
 # ============================================================================
 # NIVEAU 10 — OFDM
 # ============================================================================
 
-def L10_ofdm(cfg: dict, symbols: np.ndarray) -> tuple:
-    """Retourne (x_with_cp, sc_offset, n_sc) pour L13."""
-    banner('NIVEAU 10 — OFDM : IFFT + préfixe cyclique')
+def L10_ofdm(cfg: dict, symbols: np.ndarray, n_prb_used: int) -> tuple:
+    """Génère N symboles OFDM pour transporter tous les symboles 16-QAM.
+    Retourne (x_full, sc_offset, n_sc, n_ofdm) pour L13."""
+    banner('NIVEAU 10 — OFDM : IFFT + préfixe cyclique (multi-symboles)')
     N_FFT = cfg['fft_size']
-    n_prb = cfg['n_prb']
     prb_start = cfg['prb_start']
-    n_sc = n_prb * 12
-
-    X = np.zeros(N_FFT, dtype=complex)
+    n_sc = n_prb_used * 12
+    cp_len = int(N_FFT * 144 / 2048)
     center = N_FFT // 2
     sc_offset = (prb_start - 50) * 12
-    sym0 = symbols[:n_sc]
-    for k, val in enumerate(sym0):
-        X[(center + sc_offset + k) % N_FFT] = val
 
-    x_time = np.fft.ifft(X) * np.sqrt(N_FFT)
-    cp_len = int(N_FFT * 144 / 2048)
-    x_with_cp = np.concatenate([x_time[-cp_len:], x_time])
+    n_total = len(symbols)
+    n_ofdm = (n_total + n_sc - 1) // n_sc  # ceil
+    # Pad pour que n_ofdm * n_sc == len(symbols_padded)
+    if n_total < n_ofdm * n_sc:
+        symbols = np.concatenate([symbols, np.zeros(n_ofdm * n_sc - n_total, dtype=complex)])
+
+    x_chunks = []
+    for i in range(n_ofdm):
+        X = np.zeros(N_FFT, dtype=complex)
+        sym_chunk = symbols[i * n_sc:(i + 1) * n_sc]
+        for k, val in enumerate(sym_chunk):
+            X[(center + sc_offset + k) % N_FFT] = val
+        x_time = np.fft.ifft(X) * np.sqrt(N_FFT)
+        x_chunks.append(np.concatenate([x_time[-cp_len:], x_time]))
+    x_full = np.concatenate(x_chunks)
 
     fs = cfg['sample_rate_hz']
     Ts = 1.0 / fs
-    print(f'  N_FFT={N_FFT}, n_sc actives={n_sc}, CP={cp_len}')
-    print(f'  fs={fs / 1e6:.2f} MS/s, Ts={Ts * 1e9:.3f} ns, T_sym(+CP)={(N_FFT + cp_len) * Ts * 1e6:.2f} µs')
-    print('  Premiers 8 échantillons I/Q (après CP) :')
+    T_sym = (N_FFT + cp_len) * Ts
+    print(f'  N_FFT={N_FFT}, n_sc actives={n_sc} (n_prb={n_prb_used}), CP={cp_len}')
+    print(f'  fs={fs / 1e6:.2f} MS/s, Ts={Ts * 1e9:.3f} ns, T_sym(+CP)={T_sym * 1e6:.2f} µs')
+    print(f'  Symboles 16-QAM à transporter : {n_total} → {n_ofdm} symboles OFDM '
+          f'(durée totale = {n_ofdm * T_sym * 1e6:.2f} µs)')
+    print('  Premiers 8 échantillons I/Q du 1er symbole OFDM (après CP) :')
     for n in range(8):
-        s = x_with_cp[n]
+        s = x_full[n]
         print(f'    n={n}  I={s.real:+.5f}  Q={s.imag:+.5f}  |s|={abs(s):.5f}')
-    return x_with_cp, sc_offset, n_sc
+    return x_full, sc_offset, n_sc, n_ofdm
 
 
 # ============================================================================
-# NIVEAU 11 — RF (démonstration mathématique)
+# NIVEAU 11 — RF (démo math)
 # ============================================================================
 
 def L11_rf(cfg: dict, x_baseband: np.ndarray) -> None:
@@ -617,8 +835,8 @@ def L11_rf(cfg: dict, x_baseband: np.ndarray) -> None:
     P_tx = cfg.get('p_tx_dbm', 23)
     print(f'  f_c = {fc / 1e6:.1f} MHz (EARFCN UL {cfg["earfcn_ul"]}), P_TX = {P_tx} dBm')
     print(f'  s_RF(t) = I(t)·cos(2π f_c t) − Q(t)·sin(2π f_c t)')
-    print(f'  ⚠️  fs={fs / 1e6:.2f} MS/s < 2·f_c : c\'est une démo mathématique,')
-    print(f'      pas un échantillonnage RF Nyquist valide (en vrai : DAC + filtre + upconv analogique).\n')
+    print(f'  ⚠️  fs={fs / 1e6:.2f} MS/s < 2·f_c : démo mathématique uniquement.')
+    print(f'      Vrai pipeline : interpolation DAC + filtre reconstruction + upconv analogique.\n')
     print('  Évaluation analytique sur 4 échantillons :')
     for n in range(4):
         t = n * Ts
@@ -654,72 +872,103 @@ def L12_friis(cfg: dict) -> None:
 
 
 # ============================================================================
-# NIVEAU 13 — Décapsulation : VRAI round-trip avec asserts
+# NIVEAU 13 — Décapsulation avec asserts (channel AWGN optionnel)
 # ============================================================================
 
 def L13_decap(cfg: dict, *,
-              # Sorties TX intermédiaires
               ip_packet_tx: bytes,
               tb_tx: bytes,
               scrambled_tx: np.ndarray,
               scrambling_seq: np.ndarray,
               tb_bit_len: int,
+              coded_len: int,
               symbols_tx: np.ndarray,
               x_with_cp_tx: np.ndarray,
               sc_offset: int,
               n_sc: int,
+              n_ofdm: int,
               k_upenc: bytes,
               count: int,
               expected_result: int,
+              snr_db: float = 1000.0,
+              use_soft_demap: bool = False,
               verbose: bool = False) -> dict:
-    """
-    Décapsulation symétrique : on prend chaque sortie TX et on applique l'inverse,
-    puis on assert que ça matche le niveau précédent.
-    Retourne un dict {layer: bool} indiquant le succès de chaque round-trip.
-    """
-    banner('NIVEAU 13 — Décapsulation : round-trip identité (avec asserts)')
+    banner(f'NIVEAU 13 — Décapsulation (round-trip ; SNR={snr_db if snr_db<300 else "∞"} dB, '
+           f'demap={"soft" if use_soft_demap else "hard"})')
     results = {}
 
-    # --- L10 inverse : retirer CP + FFT → symboles -------------------------
+    # --- Canal AWGN (sur les échantillons OFDM time-domain) ----------------
+    x_rx, noise_var = awgn_channel(x_with_cp_tx, snr_db)
+    if snr_db < 300:
+        print(f'  Canal AWGN injecté : σ² = {noise_var:.6f} '
+              f'(P_signal = {np.mean(np.abs(x_with_cp_tx)**2):.4f})')
+    else:
+        print('  Canal AWGN désactivé (SNR ≥ 300 dB) → round-trip identité attendu')
+
+    # --- L10 inverse : retirer CP + FFT pour chaque symbole OFDM -----------
     N_FFT = cfg['fft_size']
     cp_len = int(N_FFT * 144 / 2048)
-    x_no_cp = x_with_cp_tx[cp_len:]
-    X_rx = np.fft.fft(x_no_cp) / np.sqrt(N_FFT)
+    samples_per_sym = N_FFT + cp_len
     center = N_FFT // 2
-    symbols_rx = np.array([X_rx[(center + sc_offset + k) % N_FFT] for k in range(n_sc)])
-    # Comparaison aux symboles TX (les n_sc premiers)
-    err_l10 = np.max(np.abs(symbols_rx - symbols_tx[:n_sc]))
-    ok_l10 = err_l10 < 1e-9
+    symbols_rx_chunks = []
+    for i in range(n_ofdm):
+        chunk = x_rx[i * samples_per_sym:(i + 1) * samples_per_sym]
+        x_no_cp = chunk[cp_len:]
+        X_rx = np.fft.fft(x_no_cp) / np.sqrt(N_FFT)
+        sc_rx = np.array([X_rx[(center + sc_offset + k) % N_FFT] for k in range(n_sc)])
+        symbols_rx_chunks.append(sc_rx)
+    symbols_rx = np.concatenate(symbols_rx_chunks)
+    # Comparaison aux symboles TX (les n_ofdm*n_sc premiers, qui couvrent tout)
+    n_compare = min(len(symbols_rx), len(symbols_tx))
+    err_l10 = np.max(np.abs(symbols_rx[:n_compare] - symbols_tx[:n_compare]))
+    ok_l10 = err_l10 < 1e-9 if snr_db >= 300 else True
     results['L10_ofdm'] = ok_l10
-    print(f'  L10 inverse : FFT + extraction n_sc={n_sc} → max|err| = {err_l10:.2e}  '
-          f'[{"OK" if ok_l10 else "FAIL"}]')
+    print(f'  L10 inverse : {n_ofdm} FFT → {len(symbols_rx)} symboles ; '
+          f'max|err vs TX| = {err_l10:.2e}  [{"OK" if ok_l10 else "FAIL"}]')
 
-    # --- L9 inverse : démap 16-QAM dur → bits ------------------------------
-    bits_rx = qam16_demap_hard(symbols_rx)
-    expected_bits = scrambled_tx[:4 * n_sc]
-    ok_l9 = bool(np.array_equal(bits_rx, expected_bits))
+    # --- L9 inverse : démap (hard ou soft) ---------------------------------
+    if use_soft_demap:
+        llrs = qam16_demap_soft(symbols_rx, noise_var=max(noise_var, 1e-9))
+        bits_rx = (llrs < 0).astype(np.uint8)
+        print(f'  L9  inverse : démap soft (LLR) → {len(bits_rx)} bits')
+    else:
+        bits_rx = qam16_demap_hard(symbols_rx)
+        print(f'  L9  inverse : démap hard → {len(bits_rx)} bits')
+
+    expected_bits = scrambled_tx[:len(bits_rx)]
+    n_errors_post_demap = int(np.sum(bits_rx != expected_bits))
+    ok_l9 = (n_errors_post_demap == 0) if snr_db >= 300 else True
     results['L9_qam16'] = ok_l9
-    print(f'  L9  inverse : démap hard → {len(bits_rx)} bits identiques au scramblé  '
+    print(f'  L9          : {n_errors_post_demap}/{len(bits_rx)} erreurs bit post-démap  '
           f'[{"OK" if ok_l9 else "FAIL"}]')
-    # --- L8 inverse : descramble + décodeur toy → TB bits ------------------
-    # Descramble sur les bits qu'on a (4*n_sc), mais le codeur toy a produit
-    # tout le bits_avail. Pour l'assert, on prend les bits_avail bits scramblés
-    # depuis le TX (on les a déjà), descramble, decode.
-    descrambled = scrambled_tx ^ scrambling_seq
-    tb_bits_recovered = toy_channel_decoder(descrambled, tb_bit_len)
+
+    # --- L8 inverse : descramble + Viterbi décode --------------------------
+    descrambled = bits_rx ^ scrambling_seq[:len(bits_rx)]
+    # Extraire les coded_len premiers bits (padding zéros à ignorer)
+    coded_rx = descrambled[:coded_len]
+    tb_bits_recovered = conv_decode_lte_like(coded_rx, tb_bit_len, decoding_type='hard')
     tb_bits_tx = np.unpackbits(np.frombuffer(tb_tx, dtype=np.uint8))
-    ok_l8 = bool(np.array_equal(tb_bits_recovered, tb_bits_tx))
+    n_errors_post_viterbi = int(np.sum(tb_bits_recovered != tb_bits_tx))
+    ok_l8 = (n_errors_post_viterbi == 0)
     results['L8_coding'] = ok_l8
-    print(f'  L8  inverse : descramble (Gold) + decode (1ère copie) → {tb_bit_len} bits TB  '
+    print(f'  L8  inverse : descramble + Viterbi (rate 1/3, K=4) → {tb_bit_len} TB bits')
+    print(f'              {n_errors_post_viterbi}/{tb_bit_len} erreurs bit post-Viterbi  '
           f'[{"OK" if ok_l8 else "FAIL"}]')
 
-    # --- L7 inverse : vérif CRC + démux MAC + RLC + déchiffrement PDCP -----
+    if not ok_l8:
+        # Si Viterbi a foiré (SNR trop bas), on arrête la chaîne crypto qui sera HS
+        print('  ⚠️  Erreurs TB > 0 → CRC fail attendu, chaîne crypto skip.')
+        results['L7_lte_ran'] = False
+        results['L6_eth'] = results['L5_ip'] = results['L4_tcp'] = False
+        results['L3_json'] = False
+        return results
+
+    # --- L7 inverse : CRC + démux MAC/RLC + déchiffrement PDCP -------------
     tb_recovered = np.packbits(tb_bits_recovered).tobytes()
     crc_rx = int.from_bytes(tb_recovered[-3:], 'big')
     crc_calc = crc24a(tb_recovered[:-3])
     crc_ok = (crc_rx == crc_calc)
     mac_pdu = tb_recovered[:-3]
-    # MAC subheader parsing
     b0 = mac_pdu[0]
     lcid = b0 & 0x1F
     b1 = mac_pdu[1]
@@ -729,14 +978,9 @@ def L13_decap(cfg: dict, *,
     else:
         L = b1 & 0x7F
         rlc_pdu = mac_pdu[2:2 + L]
-    # RLC UM strip (2 octets header)
     pdcp_pdu = rlc_pdu[2:]
-    # PDCP : header 2 octets + ciphertext
     pdcp_hdr = pdcp_pdu[:2]
     ciphertext = pdcp_pdu[2:]
-    # AES-CTR decrypt (même IV que TX)
-    from Cryptodome.Cipher import AES
-    from Cryptodome.Util import Counter
     ctr = Counter.new(128, initial_value=count << 96, little_endian=False)
     cipher = AES.new(k_upenc, AES.MODE_CTR, counter=ctr)
     ip_packet_rx = cipher.decrypt(ciphertext)
@@ -744,26 +988,22 @@ def L13_decap(cfg: dict, *,
     results['L7_lte_ran'] = ok_l7
     print(f'  L7  inverse : CRC={"OK" if crc_ok else "FAIL"} (0x{crc_rx:06X} vs 0x{crc_calc:06X}), '
           f'LCID={lcid}, L={L}')
-    print(f'              PDCP déchiffré → IP {len(ip_packet_rx)} octets  '
+    print(f'              PDCP déchiffré (AES-CTR avec K_UPenc) → IP {len(ip_packet_rx)} octets  '
           f'[{"OK" if ok_l7 else "FAIL"}]')
 
-    # --- L6/L5/L4/L3 inverse : parsing -------------------------------------
-    # IP header strip (20 octets fixe, IHL=5)
-    ip_hdr = ip_packet_rx[:20]
+    # --- L6/L5/L4/L3 inverse -----------------------------------------------
     tcp_segment = ip_packet_rx[20:]
-    # TCP header strip (data offset bits 4..7 of byte 12)
     data_off = (tcp_segment[12] >> 4) & 0x0F
     tcp_hdr_len = data_off * 4
     payload = tcp_segment[tcp_hdr_len:]
-    # JSON parse
     try:
         obj = json.loads(payload.decode('ascii'))
         result_rx = obj.get('result')
         ok_l3 = (result_rx == expected_result)
-    except Exception as e:
+    except Exception:
         result_rx = None
         ok_l3 = False
-    results['L6_eth'] = True  # FCS check trivial, on l'omet ici
+    results['L6_eth'] = True
     results['L5_ip'] = True
     results['L4_tcp'] = True
     results['L3_json'] = ok_l3
@@ -799,7 +1039,6 @@ DEFAULT_GLYPHS = {
 
 
 def raster_one_glyph(char: str, font_path: str = None, size: int = 8) -> list:
-    """Rasterise un seul caractère en 8 octets (bitmap 8×8)."""
     try:
         if font_path is None:
             font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf'
@@ -824,7 +1063,6 @@ def raster_one_glyph(char: str, font_path: str = None, size: int = 8) -> list:
 
 
 def L14_glyph(result: int, font_path: str = None) -> int:
-    """Rasterise chaque chiffre du résultat ; affiche juxtaposé ; retourne le nb de pixels ON."""
     text = str(result)
     banner(f'NIVEAU 14 — Glyph "{text}" rastérisé ({len(text)} × bitmap 8×8)')
     glyphs = [raster_one_glyph(c, font_path) for c in text]
@@ -843,25 +1081,31 @@ def L14_glyph(result: int, font_path: str = None) -> int:
 
 
 # ============================================================================
-# NIVEAU 15 — OLED
+# NIVEAU 15 — OLED (Shockley diode, vraie I-V)
 # ============================================================================
 
 def L15_oled(cfg: dict, n_pixels_on: int) -> None:
-    banner('NIVEAU 15 — Sous-pixel OLED : U = R · I (boucle bouclée)')
+    banner('NIVEAU 15 — Sous-pixel OLED : diode Shockley (boucle bouclée)')
     V = cfg['oled_voltage_v']
-    R = cfg['oled_pixel_resistance_ohm']
-    I = V / R
-    P_per = V * I
+    Is = cfg.get('oled_is_a', 1e-12)
+    n_diode = cfg.get('oled_ideality_n', 2.0)
+    T_K = cfg.get('oled_temp_k', 300.0)
+    VT = 1.380649e-23 * T_K / 1.602176634e-19  # kT/q
+
+    I_per = shockley_current(V, Is, n_diode, VT)
+    P_per = V * I_per
     n_sub = n_pixels_on * 3
-    print(f'  V_OLED = {V} V, R_pixel = {R / 1e3:.0f} kΩ (modèle linéaire pédagogique)')
-    print(f'  I_pixel = V/R = {I * 1e6:.2f} µA ; P_pixel = V·I = {P_per * 1e6:.2f} µW')
+
+    print(f'  Modèle Shockley : I = Is·(exp(V/(n·VT)) − 1)')
+    print(f'    V = {V} V  ;  Is = {Is:.2e} A  ;  n = {n_diode}  ;  VT = {VT * 1000:.2f} mV (T={T_K} K)')
+    print(f'    I_pixel = {I_per * 1e6:.3f} µA  ;  P_pixel = V·I = {P_per * 1e6:.3f} µW')
     print(f'  {n_pixels_on} pixels ON × 3 sous-pixels = {n_sub} sous-pixels')
-    print(f'  I_total = {n_sub * I * 1e6:.2f} µA   P_total = {n_sub * P_per * 1e6:.2f} µW')
+    print(f'    I_total = {n_sub * I_per * 1e6:.2f} µA   P_total = {n_sub * P_per * 1e6:.2f} µW')
     print()
     print('  ┌──────────────────────────────────────────────────────────────────┐')
-    print(f'  │  TX (L0)  : V_GS=3.3 V → MOSFET I_D ≈ µA                         │')
-    print(f'  │  RX (L15) : V={V} V, R={R / 1e3:.0f} kΩ → I={I * 1e6:.2f} µA (OLED linéaire)   │')
-    print('  │  Loi U = R·I aux deux extrémités (différents R, mêmes équations) │')
+    print(f'  │  TX (L0)  : V_GS=3.3 V → MOSFET I_D ≈ µA  (régime saturation)    │')
+    print(f'  │  RX (L15) : Shockley I = Is·(exp(V/nVT)−1) ≈ {I_per * 1e6:6.2f} µA         │')
+    print('  │  Deux régimes physiques distincts, deux équations distinctes.    │')
     print('  └──────────────────────────────────────────────────────────────────┘')
 
 
@@ -878,7 +1122,7 @@ def parse_addition(s: str) -> tuple:
 
 def main():
     ap = argparse.ArgumentParser(
-        description='Trace LTE/NR honnête : MOSFET → OLED',
+        description='Trace LTE/NR honnête (real libs) : MOSFET → OLED',
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('csv_file', help='Fichier CSV de config')
     ap.add_argument('addition', nargs='?', default='1+1', help='Addition (ex: 16+16)')
@@ -887,56 +1131,63 @@ def main():
     ap.add_argument('--check', action='store_true',
                     help='Mode silencieux : exit 0 si round-trip OK, 1 sinon')
     ap.add_argument('--font', help='Chemin vers une TTF (sinon DejaVuSansMono)')
+    ap.add_argument('--snr-db', type=float, default=1000.0,
+                    help='SNR du canal AWGN en dB (défaut: ∞, pas de bruit)')
+    ap.add_argument('--soft-demap', action='store_true',
+                    help='Utiliser la démap soft (LLR max-log-MAP) au lieu de hard')
     args = ap.parse_args()
 
     cfg = load_csv(args.csv_file)
     a, b = parse_addition(args.addition)
 
-    # En mode --check, on redirige stdout pour ne garder que le verdict final.
     import io, contextlib
     sink = io.StringIO() if args.check else None
     cm = contextlib.redirect_stdout(sink) if sink else contextlib.nullcontext()
 
     with cm:
         print(f'\n📁 Config : {len(cfg)} clés ; addition : {a} + {b}')
+        if args.snr_db < 300:
+            print(f'🌀 Canal AWGN actif : SNR = {args.snr_db} dB')
+        if args.soft_demap:
+            print(f'🎯 Démap soft (LLR max-log-MAP)')
 
-        # L0 → L1
         reg_a, reg_b = L0_unified(cfg, a, b)
         result = L1_full_adder(reg_a, reg_b)
         assert result == a + b, f"L1 incohérent : {result} != {a + b}"
 
-        # L2..L6
         L2_alu_arm(a, b, result)
         payload = L3_payload(result)
         tcp_seg = L4_tcp(cfg, payload)
         ip_pkt = L5_ip(cfg, tcp_seg)
         L6_ethernet(cfg, ip_pkt)
 
-        # L7..L11
         tb, k_upenc, count = L7_lte_ran(cfg, ip_pkt)
-        scrambled, scrambling, tb_bit_len = L8_phy_coding(cfg, tb)
+        scrambled, scrambling, tb_bit_len, coded_len, n_prb_used = L8_phy_coding(cfg, tb)
         symbols = L9_qam16(scrambled)
-        x_with_cp, sc_offset, n_sc = L10_ofdm(cfg, symbols)
+        L9p5_pss_demo(cfg)
+        x_with_cp, sc_offset, n_sc, n_ofdm = L10_ofdm(cfg, symbols, n_prb_used)
         L11_rf(cfg, x_with_cp)
         L12_friis(cfg)
 
-        # L13 round-trip avec asserts
         rt = L13_decap(cfg,
                        ip_packet_tx=ip_pkt,
                        tb_tx=tb,
                        scrambled_tx=scrambled,
                        scrambling_seq=scrambling,
                        tb_bit_len=tb_bit_len,
+                       coded_len=coded_len,
                        symbols_tx=symbols,
                        x_with_cp_tx=x_with_cp,
                        sc_offset=sc_offset,
                        n_sc=n_sc,
+                       n_ofdm=n_ofdm,
                        k_upenc=k_upenc,
                        count=count,
                        expected_result=result,
+                       snr_db=args.snr_db,
+                       use_soft_demap=args.soft_demap,
                        verbose=args.verbose)
 
-        # L14, L15
         n_on = L14_glyph(result, args.font)
         L15_oled(cfg, n_on)
 
@@ -947,7 +1198,6 @@ def main():
         print('=' * 72)
 
     if args.check:
-        # En mode check, on imprime juste le verdict
         all_ok = all(rt.values())
         if all_ok:
             print(f'OK {a}+{b}={result} round-trip verified')
