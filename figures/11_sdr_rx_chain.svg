@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 320" role="img" width="100%">
+  <title>Chaîne SDR Rx : de l'onde aux bits</title>
+  <desc>Une réception SDR enchaîne antenne, amplificateur faible bruit, mixeur avec oscillateur local, filtre passe-bas, ADC, puis traitement numérique pour produire des bits exploitables par la couche MAC.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; fill: #3d3d3a; }
+    .t  { font-size: 14px; }
+    .ts { font-size: 12px; fill: #6c6b66; }
+    .th { font-size: 14px; font-weight: 500; }
+
+    .c-blue   rect, .c-blue   circle, .c-blue   ellipse { fill: #E6F1FB; stroke: #185FA5; }
+    .c-blue   .th, .c-blue   .t { fill: #0C447C; }
+    .c-blue   .ts { fill: #185FA5; }
+
+    .c-teal   rect, .c-teal   circle, .c-teal   ellipse { fill: #E1F5EE; stroke: #0F6E56; }
+    .c-teal   .th, .c-teal   .t { fill: #085041; }
+    .c-teal   .ts { fill: #0F6E56; }
+
+    .c-purple rect, .c-purple circle, .c-purple ellipse { fill: #EEEDFE; stroke: #534AB7; }
+    .c-purple .th, .c-purple .t { fill: #3C3489; }
+    .c-purple .ts { fill: #534AB7; }
+
+    .c-amber  rect, .c-amber  circle, .c-amber  ellipse { fill: #FAEEDA; stroke: #854F0B; }
+    .c-amber  .th, .c-amber  .t { fill: #633806; }
+    .c-amber  .ts { fill: #854F0B; }
+
+    .c-gray   rect, .c-gray   circle, .c-gray   ellipse { fill: #F1EFE8; stroke: #5F5E5A; }
+    .c-gray   .th, .c-gray   .t { fill: #444441; }
+    .c-gray   .ts { fill: #5F5E5A; }
+
+    .c-coral  rect, .c-coral  circle, .c-coral  ellipse { fill: #FAECE7; stroke: #993C1D; }
+    .c-coral  .th, .c-coral  .t { fill: #712B13; }
+    .c-coral  .ts { fill: #993C1D; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <text class="th" x="340" y="32" text-anchor="middle">SDR Rx — remontée du physique au logiciel</text>
+
+  <text class="ts" x="200" y="64" text-anchor="middle" fill="#6c6b66">— domaine analogique (RF + BB) —</text>
+  <text class="ts" x="520" y="64" text-anchor="middle" fill="#6c6b66">— domaine numérique —</text>
+
+  <line x1="395" y1="80" x2="395" y2="240" stroke="#3d3d3a" stroke-width="0.5" stroke-dasharray="3 3"/>
+  <text class="ts" x="395" y="76" text-anchor="middle">frontière</text>
+
+  <line x1="60" y1="160" x2="60" y2="180" stroke="#3d3d3a" stroke-width="1.5"/>
+  <line x1="60" y1="160" x2="48" y2="140" stroke="#3d3d3a" stroke-width="1.5"/>
+  <line x1="60" y1="160" x2="72" y2="140" stroke="#3d3d3a" stroke-width="1.5"/>
+  <text class="ts" x="60" y="216" text-anchor="middle">Antenne</text>
+  <text class="ts" x="60" y="232" text-anchor="middle">capte le RF</text>
+
+  <line x1="60" y1="180" x2="110" y2="180" stroke="#3d3d3a" stroke-width="1.5"/>
+
+  <polygon points="110,160 110,200 150,180" fill="#F6F5EE" stroke="#3d3d3a" stroke-width="1"/>
+  <text class="ts" x="130" y="216" text-anchor="middle">LNA</text>
+  <text class="ts" x="130" y="232" text-anchor="middle">faible bruit</text>
+
+  <line x1="150" y1="180" x2="180" y2="180" stroke="#3d3d3a" stroke-width="1.5"/>
+
+  <circle cx="200" cy="180" r="18" fill="#F6F5EE" stroke="#3d3d3a" stroke-width="1.5"/>
+  <line x1="187" y1="167" x2="213" y2="193" stroke="#3d3d3a" stroke-width="1"/>
+  <line x1="187" y1="193" x2="213" y2="167" stroke="#3d3d3a" stroke-width="1"/>
+  <text class="ts" x="200" y="216" text-anchor="middle">Mixeur</text>
+  <text class="ts" x="200" y="232" text-anchor="middle">décale en BB</text>
+
+  <line x1="200" y1="138" x2="200" y2="162" stroke="#3d3d3a" stroke-width="1.5"/>
+  <text class="ts" x="200" y="130" text-anchor="middle">LO</text>
+
+  <line x1="218" y1="180" x2="248" y2="180" stroke="#3d3d3a" stroke-width="1.5"/>
+
+  <rect x="248" y="160" width="60" height="40" rx="4" fill="#F6F5EE" stroke="#3d3d3a" stroke-width="1"/>
+  <text class="ts" x="278" y="184" text-anchor="middle">LPF</text>
+  <text class="ts" x="278" y="216" text-anchor="middle">filtre I/Q</text>
+  <text class="ts" x="278" y="232" text-anchor="middle">passe-bas BB</text>
+
+  <line x1="308" y1="180" x2="340" y2="180" stroke="#3d3d3a" stroke-width="1.5"/>
+
+  <polygon points="340,160 385,160 370,200 355,200" fill="#F6F5EE" stroke="#3d3d3a" stroke-width="1.5"/>
+  <text class="ts" x="362" y="184" text-anchor="middle">ADC</text>
+  <text class="ts" x="362" y="216" text-anchor="middle">échantillonne</text>
+  <text class="ts" x="362" y="232" text-anchor="middle">I + Q</text>
+
+  <line x1="385" y1="180" x2="415" y2="180" stroke="#3d3d3a" stroke-width="1.5"/>
+
+  <g class="c-purple"><rect x="415" y="155" width="115" height="50" rx="6" stroke-width="0.5"/></g>
+  <text class="th" x="472" y="178" text-anchor="middle">DSP / FPGA</text>
+  <text class="ts" x="472" y="196" text-anchor="middle">DDC, démod, FEC</text>
+  <text class="ts" x="472" y="232" text-anchor="middle">tout en code</text>
+
+  <line x1="530" y1="180" x2="555" y2="180" stroke="#3d3d3a" stroke-width="1.5"/>
+
+  <g class="c-teal"><rect x="555" y="160" width="80" height="40" rx="6" stroke-width="0.5"/></g>
+  <text class="th" x="595" y="180" text-anchor="middle">bits → L2</text>
+  <text class="ts" x="595" y="196" text-anchor="middle">MAC / RLC</text>
+  <text class="ts" x="595" y="232" text-anchor="middle">stack RAN</text>
+
+  <text class="ts" x="340" y="276" text-anchor="middle">Front-end RF : AD9363, MAX2839, RTL2832...    DSP : GNU Radio, srsRAN, OsmocomBB</text>
+  <text class="ts" x="340" y="296" text-anchor="middle">L'ADC est la couture entre le monde des watts et celui des octets.</text>
+
+</svg>

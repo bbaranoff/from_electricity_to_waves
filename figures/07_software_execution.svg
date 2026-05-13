@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 420" role="img" width="100%">
+  <title>Pile logicielle : du code source à l'exécution</title>
+  <desc>Le code C est compilé en assembleur, puis en code machine binaire chargé en mémoire programme. Le processeur exécute en quatre temps : fetch, decode, execute, writeback.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; fill: #3d3d3a; }
+    .t  { font-size: 14px; }
+    .ts { font-size: 12px; fill: #6c6b66; }
+    .th { font-size: 14px; font-weight: 500; }
+
+    .c-blue   rect, .c-blue   circle, .c-blue   ellipse { fill: #E6F1FB; stroke: #185FA5; }
+    .c-blue   .th, .c-blue   .t { fill: #0C447C; }
+    .c-blue   .ts { fill: #185FA5; }
+
+    .c-teal   rect, .c-teal   circle, .c-teal   ellipse { fill: #E1F5EE; stroke: #0F6E56; }
+    .c-teal   .th, .c-teal   .t { fill: #085041; }
+    .c-teal   .ts { fill: #0F6E56; }
+
+    .c-purple rect, .c-purple circle, .c-purple ellipse { fill: #EEEDFE; stroke: #534AB7; }
+    .c-purple .th, .c-purple .t { fill: #3C3489; }
+    .c-purple .ts { fill: #534AB7; }
+
+    .c-amber  rect, .c-amber  circle, .c-amber  ellipse { fill: #FAEEDA; stroke: #854F0B; }
+    .c-amber  .th, .c-amber  .t { fill: #633806; }
+    .c-amber  .ts { fill: #854F0B; }
+
+    .c-gray   rect, .c-gray   circle, .c-gray   ellipse { fill: #F1EFE8; stroke: #5F5E5A; }
+    .c-gray   .th, .c-gray   .t { fill: #444441; }
+    .c-gray   .ts { fill: #5F5E5A; }
+
+    .c-coral  rect, .c-coral  circle, .c-coral  ellipse { fill: #FAECE7; stroke: #993C1D; }
+    .c-coral  .th, .c-coral  .t { fill: #712B13; }
+    .c-coral  .ts { fill: #993C1D; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <text class="th" x="170" y="36" text-anchor="middle">Chaîne de compilation</text>
+
+  <g class="c-blue"><rect x="40" y="56" width="260" height="60" rx="8" stroke-width="0.5"/></g>
+  <text class="ts" x="56" y="78">code source (C)</text>
+  <text x="56" y="102" font-family="ui-monospace, Menlo, monospace" font-size="14" fill="#3d3d3a">int x = 1 + 1;</text>
+
+  <line x1="170" y1="116" x2="170" y2="142" stroke="#3d3d3a" stroke-width="1" marker-end="url(#arrow)"/>
+  <text class="ts" x="178" y="132">gcc</text>
+
+  <g class="c-teal"><rect x="40" y="146" width="260" height="90" rx="8" stroke-width="0.5"/></g>
+  <text class="ts" x="56" y="168">assembleur</text>
+  <text x="56" y="188" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#3d3d3a">MOV R0, #1</text>
+  <text x="56" y="206" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#3d3d3a">MOV R1, #1</text>
+  <text x="56" y="224" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#3d3d3a">ADD R2, R0, R1</text>
+
+  <line x1="170" y1="236" x2="170" y2="262" stroke="#3d3d3a" stroke-width="1" marker-end="url(#arrow)"/>
+  <text class="ts" x="178" y="252">as</text>
+
+  <g class="c-amber"><rect x="40" y="266" width="260" height="90" rx="8" stroke-width="0.5"/></g>
+  <text class="ts" x="56" y="288">binaire en mémoire programme</text>
+  <text x="56" y="308" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#3d3d3a">0x12 0x01    ; MOV R0,#1</text>
+  <text x="56" y="326" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#3d3d3a">0x16 0x01    ; MOV R1,#1</text>
+  <text x="56" y="344" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#3d3d3a">0x40 0x12    ; ADD R2,R0,R1</text>
+
+  <text class="ts" x="170" y="384" text-anchor="middle">chargé en Flash ou RAM du µC</text>
+
+  <text class="th" x="510" y="36" text-anchor="middle">Exécution dans le processeur</text>
+
+  <g class="c-purple"><rect x="380" y="56" width="260" height="56" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="510" y="80" text-anchor="middle">1. Fetch</text>
+  <text class="ts" x="510" y="98" text-anchor="middle">lit l'instruction à PC</text>
+
+  <line x1="510" y1="112" x2="510" y2="128" stroke="#3d3d3a" stroke-width="1" marker-end="url(#arrow)"/>
+
+  <g class="c-purple"><rect x="380" y="132" width="260" height="56" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="510" y="156" text-anchor="middle">2. Decode</text>
+  <text class="ts" x="510" y="174" text-anchor="middle">identifie opcode + registres</text>
+
+  <line x1="510" y1="188" x2="510" y2="204" stroke="#3d3d3a" stroke-width="1" marker-end="url(#arrow)"/>
+
+  <g class="c-purple"><rect x="380" y="208" width="260" height="56" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="510" y="232" text-anchor="middle">3. Execute</text>
+  <text class="ts" x="510" y="250" text-anchor="middle">R0, R1 → additionneur ALU</text>
+
+  <line x1="510" y1="264" x2="510" y2="280" stroke="#3d3d3a" stroke-width="1" marker-end="url(#arrow)"/>
+
+  <g class="c-purple"><rect x="380" y="284" width="260" height="56" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="510" y="308" text-anchor="middle">4. Writeback</text>
+  <text class="ts" x="510" y="326" text-anchor="middle">latche le résultat dans R2</text>
+
+  <text class="ts" x="510" y="370" text-anchor="middle">R2 = 10b = 2 — disponible pour l'instruction suivante</text>
+
+</svg>

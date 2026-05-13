@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 580" role="img" width="100%">
+  <title>OSI 7 → 1 avec métaphore postale</title>
+  <desc>Les sept couches du modèle OSI mises en parallèle avec les étapes du système postal.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; fill: #3d3d3a; }
+    .t  { font-size: 14px; }
+    .ts { font-size: 12px; fill: #6c6b66; }
+    .th { font-size: 14px; font-weight: 500; }
+
+    .c-blue   rect, .c-blue   circle, .c-blue   ellipse { fill: #E6F1FB; stroke: #185FA5; }
+    .c-blue   .th, .c-blue   .t { fill: #0C447C; }
+    .c-blue   .ts { fill: #185FA5; }
+
+    .c-teal   rect, .c-teal   circle, .c-teal   ellipse { fill: #E1F5EE; stroke: #0F6E56; }
+    .c-teal   .th, .c-teal   .t { fill: #085041; }
+    .c-teal   .ts { fill: #0F6E56; }
+
+    .c-purple rect, .c-purple circle, .c-purple ellipse { fill: #EEEDFE; stroke: #534AB7; }
+    .c-purple .th, .c-purple .t { fill: #3C3489; }
+    .c-purple .ts { fill: #534AB7; }
+
+    .c-amber  rect, .c-amber  circle, .c-amber  ellipse { fill: #FAEEDA; stroke: #854F0B; }
+    .c-amber  .th, .c-amber  .t { fill: #633806; }
+    .c-amber  .ts { fill: #854F0B; }
+
+    .c-gray   rect, .c-gray   circle, .c-gray   ellipse { fill: #F1EFE8; stroke: #5F5E5A; }
+    .c-gray   .th, .c-gray   .t { fill: #444441; }
+    .c-gray   .ts { fill: #5F5E5A; }
+
+    .c-coral  rect, .c-coral  circle, .c-coral  ellipse { fill: #FAECE7; stroke: #993C1D; }
+    .c-coral  .th, .c-coral  .t { fill: #712B13; }
+    .c-coral  .ts { fill: #993C1D; }
+  </style>
+
+  <text class="th" x="340" y="32" text-anchor="middle">OSI 7 → 1 : envoyer "2" par la poste</text>
+
+  <g class="c-blue"><rect x="40" y="56" width="290" height="62" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="56" y="80">L7 — Application</text>
+  <text class="ts" x="56" y="98">HTTP, SMTP, MQTT, DNS</text>
+  <text x="56" y="114" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#3d3d3a">{"result": 2}</text>
+
+  <g class="c-amber"><rect x="350" y="56" width="290" height="62" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="366" y="80">la lettre elle-même</text>
+  <text class="ts" x="366" y="98">le contenu, ce que tu veux</text>
+  <text class="ts" x="366" y="114">dire au destinataire</text>
+
+  <g class="c-blue"><rect x="40" y="128" width="290" height="62" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="56" y="152">L6 — Présentation</text>
+  <text class="ts" x="56" y="170">UTF-8, TLS, compression</text>
+  <text class="ts" x="56" y="186">encodage et chiffrement</text>
+
+  <g class="c-amber"><rect x="350" y="128" width="290" height="62" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="366" y="152">la langue choisie</text>
+  <text class="ts" x="366" y="170">français, chiffré ou en clair</text>
+  <text class="ts" x="366" y="186">format de l'écriture</text>
+
+  <g class="c-blue"><rect x="40" y="200" width="290" height="62" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="56" y="224">L5 — Session</text>
+  <text class="ts" x="56" y="242">handshake, login, contexte</text>
+  <text class="ts" x="56" y="258">ouverture et clôture du dialogue</text>
+
+  <g class="c-amber"><rect x="350" y="200" width="290" height="62" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="366" y="224">la correspondance ouverte</text>
+  <text class="ts" x="366" y="242">"vous m'avez écrit le 12,</text>
+  <text class="ts" x="366" y="258">je vous réponds le 14"</text>
+
+  <g class="c-blue"><rect x="40" y="272" width="290" height="62" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="56" y="296">L4 — Transport (TCP)</text>
+  <text class="ts" x="56" y="314">ports, seq, ack, checksum</text>
+  <text class="ts" x="56" y="330">fiabilité, ordre, retransmissions</text>
+
+  <g class="c-amber"><rect x="350" y="272" width="290" height="62" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="366" y="296">l'enveloppe + recommandé</text>
+  <text class="ts" x="366" y="314">expéditeur, destinataire,</text>
+  <text class="ts" x="366" y="330">numéro de page, accusé de réception</text>
+
+  <g class="c-blue"><rect x="40" y="344" width="290" height="62" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="56" y="368">L3 — Réseau (IP)</text>
+  <text class="ts" x="56" y="386">IP source / destination, TTL</text>
+  <text class="ts" x="56" y="402">routage de bout en bout</text>
+
+  <g class="c-amber"><rect x="350" y="344" width="290" height="62" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="366" y="368">l'adresse postale complète</text>
+  <text class="ts" x="366" y="386">pays, ville, rue, numéro</text>
+  <text class="ts" x="366" y="402">— pour le routage international</text>
+
+  <g class="c-blue"><rect x="40" y="416" width="290" height="62" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="56" y="440">L2 — Liaison (Ethernet, Wi-Fi)</text>
+  <text class="ts" x="56" y="458">MAC src/dst, frame, FCS</text>
+  <text class="ts" x="56" y="474">trame locale, prochain saut</text>
+
+  <g class="c-amber"><rect x="350" y="416" width="290" height="62" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="366" y="440">le tri au bureau de poste</text>
+  <text class="ts" x="366" y="458">"prochain camion : Lyon"</text>
+  <text class="ts" x="366" y="474">route locale, pas la finale</text>
+
+  <g class="c-blue"><rect x="40" y="488" width="290" height="62" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="56" y="512">L1 — Physique</text>
+  <text class="ts" x="56" y="530">tensions, photons, ondes radio</text>
+  <text class="ts" x="56" y="546">cuivre, fibre, air</text>
+
+  <g class="c-amber"><rect x="350" y="488" width="290" height="62" rx="8" stroke-width="0.5"/></g>
+  <text class="th" x="366" y="512">le transport physique</text>
+  <text class="ts" x="366" y="530">camion, train, avion,</text>
+  <text class="ts" x="366" y="546">vélo du facteur</text>
+
+</svg>

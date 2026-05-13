@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 280" role="img" width="100%">
+  <title>Bascule D et registre 8 bits</title>
+  <desc>Une bascule D mémorise un bit sur front d'horloge. Huit bascules partageant la même horloge forment un registre stockant un octet.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; fill: #3d3d3a; }
+    .t  { font-size: 14px; }
+    .ts { font-size: 12px; fill: #6c6b66; }
+    .th { font-size: 14px; font-weight: 500; }
+
+    .c-blue   rect, .c-blue   circle, .c-blue   ellipse { fill: #E6F1FB; stroke: #185FA5; }
+    .c-blue   .th, .c-blue   .t { fill: #0C447C; }
+    .c-blue   .ts { fill: #185FA5; }
+
+    .c-teal   rect, .c-teal   circle, .c-teal   ellipse { fill: #E1F5EE; stroke: #0F6E56; }
+    .c-teal   .th, .c-teal   .t { fill: #085041; }
+    .c-teal   .ts { fill: #0F6E56; }
+
+    .c-purple rect, .c-purple circle, .c-purple ellipse { fill: #EEEDFE; stroke: #534AB7; }
+    .c-purple .th, .c-purple .t { fill: #3C3489; }
+    .c-purple .ts { fill: #534AB7; }
+
+    .c-amber  rect, .c-amber  circle, .c-amber  ellipse { fill: #FAEEDA; stroke: #854F0B; }
+    .c-amber  .th, .c-amber  .t { fill: #633806; }
+    .c-amber  .ts { fill: #854F0B; }
+
+    .c-gray   rect, .c-gray   circle, .c-gray   ellipse { fill: #F1EFE8; stroke: #5F5E5A; }
+    .c-gray   .th, .c-gray   .t { fill: #444441; }
+    .c-gray   .ts { fill: #5F5E5A; }
+
+    .c-coral  rect, .c-coral  circle, .c-coral  ellipse { fill: #FAECE7; stroke: #993C1D; }
+    .c-coral  .th, .c-coral  .t { fill: #712B13; }
+    .c-coral  .ts { fill: #993C1D; }
+  </style>
+
+  <text class="th" x="170" y="40" text-anchor="middle">Bascule D — 1 bit</text>
+  <text class="ts" x="170" y="58" text-anchor="middle">capture sur front d'horloge</text>
+
+  <rect x="100" y="90" width="140" height="90" rx="6" fill="#F6F5EE" stroke="#3d3d3a" stroke-width="1"/>
+  <text class="t" x="170" y="138" text-anchor="middle">D-FF</text>
+
+  <line x1="60" y1="115" x2="100" y2="115" stroke="#3d3d3a" stroke-width="1.5"/>
+  <text class="ts" x="54" y="119" text-anchor="end">D</text>
+
+  <line x1="60" y1="155" x2="100" y2="155" stroke="#3d3d3a" stroke-width="1.5"/>
+  <text class="ts" x="54" y="159" text-anchor="end">CLK</text>
+  <polygon points="100,150 110,155 100,160" fill="none" stroke="#3d3d3a" stroke-width="1"/>
+
+  <line x1="240" y1="135" x2="280" y2="135" stroke="#3d3d3a" stroke-width="1.5"/>
+  <text class="ts" x="288" y="139">Q</text>
+
+  <text class="ts" x="170" y="210" text-anchor="middle">Q ← D sur front montant</text>
+  <text class="ts" x="170" y="226" text-anchor="middle">tient entre deux fronts</text>
+  <text class="ts" x="170" y="252" text-anchor="middle">= 1 bit mémorisé</text>
+
+  <text class="th" x="510" y="40" text-anchor="middle">Registre 8 bits</text>
+  <text class="ts" x="510" y="58" text-anchor="middle">8 bascules, horloge partagée</text>
+
+  <g class="c-blue"><rect x="370" y="90" width="280" height="50" rx="4" stroke-width="0.5"/></g>
+  <line x1="406" y1="90" x2="406" y2="140" stroke="#3d3d3a" stroke-width="0.5" opacity="0.5"/>
+  <line x1="442" y1="90" x2="442" y2="140" stroke="#3d3d3a" stroke-width="0.5" opacity="0.5"/>
+  <line x1="478" y1="90" x2="478" y2="140" stroke="#3d3d3a" stroke-width="0.5" opacity="0.5"/>
+  <line x1="514" y1="90" x2="514" y2="140" stroke="#3d3d3a" stroke-width="0.5" opacity="0.5"/>
+  <line x1="550" y1="90" x2="550" y2="140" stroke="#3d3d3a" stroke-width="0.5" opacity="0.5"/>
+  <line x1="586" y1="90" x2="586" y2="140" stroke="#3d3d3a" stroke-width="0.5" opacity="0.5"/>
+  <line x1="622" y1="90" x2="622" y2="140" stroke="#3d3d3a" stroke-width="0.5" opacity="0.5"/>
+
+  <text class="ts" x="388" y="120" text-anchor="middle">FF</text>
+  <text class="ts" x="424" y="120" text-anchor="middle">FF</text>
+  <text class="ts" x="460" y="120" text-anchor="middle">FF</text>
+  <text class="ts" x="496" y="120" text-anchor="middle">FF</text>
+  <text class="ts" x="532" y="120" text-anchor="middle">FF</text>
+  <text class="ts" x="568" y="120" text-anchor="middle">FF</text>
+  <text class="ts" x="604" y="120" text-anchor="middle">FF</text>
+  <text class="ts" x="640" y="120" text-anchor="middle">FF</text>
+
+  <text class="ts" x="350" y="80" text-anchor="end">D[7:0]</text>
+  <line x1="358" y1="78" x2="370" y2="90" stroke="#3d3d3a" stroke-width="1" opacity="0.6"/>
+
+  <line x1="370" y1="170" x2="650" y2="170" stroke="#3d3d3a" stroke-width="1.5"/>
+  <text class="ts" x="362" y="174" text-anchor="end">CLK</text>
+  <line x1="388" y1="140" x2="388" y2="170" stroke="#3d3d3a" stroke-width="0.5" stroke-dasharray="2 2"/>
+  <line x1="424" y1="140" x2="424" y2="170" stroke="#3d3d3a" stroke-width="0.5" stroke-dasharray="2 2"/>
+  <line x1="460" y1="140" x2="460" y2="170" stroke="#3d3d3a" stroke-width="0.5" stroke-dasharray="2 2"/>
+  <line x1="496" y1="140" x2="496" y2="170" stroke="#3d3d3a" stroke-width="0.5" stroke-dasharray="2 2"/>
+  <line x1="532" y1="140" x2="532" y2="170" stroke="#3d3d3a" stroke-width="0.5" stroke-dasharray="2 2"/>
+  <line x1="568" y1="140" x2="568" y2="170" stroke="#3d3d3a" stroke-width="0.5" stroke-dasharray="2 2"/>
+  <line x1="604" y1="140" x2="604" y2="170" stroke="#3d3d3a" stroke-width="0.5" stroke-dasharray="2 2"/>
+  <line x1="640" y1="140" x2="640" y2="170" stroke="#3d3d3a" stroke-width="0.5" stroke-dasharray="2 2"/>
+
+  <text class="ts" x="510" y="210" text-anchor="middle">= 1 octet stocké en parallèle</text>
+  <text class="ts" x="510" y="226" text-anchor="middle">empile en 32, 64 bits</text>
+  <text class="ts" x="510" y="252" text-anchor="middle">= registres généraux d'un cœur</text>
+
+</svg>

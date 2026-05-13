@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 380" role="img" width="100%">
+  <title>Encapsulation OSI</title>
+  <desc>Le payload applicatif descend la pile et se fait entourer d'en-têtes successifs : TCP, IP, Ethernet, plus son FCS. À la couche physique il devient un flux de bits sur le médium.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; fill: #3d3d3a; }
+    .t  { font-size: 14px; }
+    .ts { font-size: 12px; fill: #6c6b66; }
+    .th { font-size: 14px; font-weight: 500; }
+
+    .c-blue   rect, .c-blue   circle, .c-blue   ellipse { fill: #E6F1FB; stroke: #185FA5; }
+    .c-blue   .th, .c-blue   .t { fill: #0C447C; }
+    .c-blue   .ts { fill: #185FA5; }
+
+    .c-teal   rect, .c-teal   circle, .c-teal   ellipse { fill: #E1F5EE; stroke: #0F6E56; }
+    .c-teal   .th, .c-teal   .t { fill: #085041; }
+    .c-teal   .ts { fill: #0F6E56; }
+
+    .c-purple rect, .c-purple circle, .c-purple ellipse { fill: #EEEDFE; stroke: #534AB7; }
+    .c-purple .th, .c-purple .t { fill: #3C3489; }
+    .c-purple .ts { fill: #534AB7; }
+
+    .c-amber  rect, .c-amber  circle, .c-amber  ellipse { fill: #FAEEDA; stroke: #854F0B; }
+    .c-amber  .th, .c-amber  .t { fill: #633806; }
+    .c-amber  .ts { fill: #854F0B; }
+
+    .c-gray   rect, .c-gray   circle, .c-gray   ellipse { fill: #F1EFE8; stroke: #5F5E5A; }
+    .c-gray   .th, .c-gray   .t { fill: #444441; }
+    .c-gray   .ts { fill: #5F5E5A; }
+
+    .c-coral  rect, .c-coral  circle, .c-coral  ellipse { fill: #FAECE7; stroke: #993C1D; }
+    .c-coral  .th, .c-coral  .t { fill: #712B13; }
+    .c-coral  .ts { fill: #993C1D; }
+  </style>
+
+  <text class="th" x="340" y="32" text-anchor="middle">Encapsulation — la lettre dans ses enveloppes</text>
+
+  <text class="ts" x="100" y="80" text-anchor="end">L7</text>
+  <g class="c-gray"><rect x="240" y="60" width="200" height="40" rx="4" stroke-width="0.5"/></g>
+  <text class="ts" x="340" y="84" text-anchor="middle">payload : {"result": 2}</text>
+
+  <text class="ts" x="100" y="130" text-anchor="end">L4 — TCP</text>
+  <g class="c-blue"><rect x="200" y="110" width="40" height="40" rx="4" stroke-width="0.5"/></g>
+  <text class="ts" x="220" y="134" text-anchor="middle">TCP</text>
+  <g class="c-gray"><rect x="240" y="110" width="200" height="40" rx="4" stroke-width="0.5"/></g>
+  <text class="ts" x="340" y="134" text-anchor="middle">payload</text>
+
+  <text class="ts" x="100" y="180" text-anchor="end">L3 — IP</text>
+  <g class="c-teal"><rect x="160" y="160" width="40" height="40" rx="4" stroke-width="0.5"/></g>
+  <text class="ts" x="180" y="184" text-anchor="middle">IP</text>
+  <g class="c-blue"><rect x="200" y="160" width="40" height="40" rx="4" stroke-width="0.5"/></g>
+  <text class="ts" x="220" y="184" text-anchor="middle">TCP</text>
+  <g class="c-gray"><rect x="240" y="160" width="200" height="40" rx="4" stroke-width="0.5"/></g>
+  <text class="ts" x="340" y="184" text-anchor="middle">payload</text>
+
+  <text class="ts" x="100" y="230" text-anchor="end">L2 — Eth</text>
+  <g class="c-amber"><rect x="120" y="210" width="40" height="40" rx="4" stroke-width="0.5"/></g>
+  <text class="ts" x="140" y="234" text-anchor="middle">ETH</text>
+  <g class="c-teal"><rect x="160" y="210" width="40" height="40" rx="4" stroke-width="0.5"/></g>
+  <text class="ts" x="180" y="234" text-anchor="middle">IP</text>
+  <g class="c-blue"><rect x="200" y="210" width="40" height="40" rx="4" stroke-width="0.5"/></g>
+  <text class="ts" x="220" y="234" text-anchor="middle">TCP</text>
+  <g class="c-gray"><rect x="240" y="210" width="200" height="40" rx="4" stroke-width="0.5"/></g>
+  <text class="ts" x="340" y="234" text-anchor="middle">payload</text>
+  <g class="c-amber"><rect x="440" y="210" width="40" height="40" rx="4" stroke-width="0.5"/></g>
+  <text class="ts" x="460" y="234" text-anchor="middle">FCS</text>
+
+  <text class="ts" x="100" y="290" text-anchor="end">L1</text>
+  <path d="M 120 290 L 130 290 L 130 270 L 150 270 L 150 290 L 170 290 L 170 270 L 180 270 L 180 290 L 210 290 L 210 270 L 230 270 L 230 290 L 250 290 L 250 270 L 280 270 L 280 290 L 300 290 L 300 270 L 320 270 L 320 290 L 350 290 L 350 270 L 370 270 L 370 290 L 400 290 L 400 270 L 420 270 L 420 290 L 450 290 L 450 270 L 470 270 L 470 290 L 490 290" fill="none" stroke="#3d3d3a" stroke-width="1.5"/>
+  <text class="ts" x="340" y="316" text-anchor="middle">flux de bits sur le médium physique</text>
+
+  <text class="ts" x="340" y="352" text-anchor="middle">Chaque couche ajoute son en-tête et ignore le contenu de toutes les autres.</text>
+
+</svg>

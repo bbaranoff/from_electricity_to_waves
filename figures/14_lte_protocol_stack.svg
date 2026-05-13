@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 480" role="img" width="100%">
+  <title>Pile protocole LTE — interface air Uu</title>
+  <desc>Les six couches de l'interface air LTE entre UE et eNB : NAS (transparent à l'eNB, terminée au MME), RRC, PDCP, RLC, MAC, PHY. Chaque couche communique avec son pair par un protocole spécifique.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; fill: #3d3d3a; }
+    .t  { font-size: 14px; }
+    .ts { font-size: 12px; fill: #6c6b66; }
+    .th { font-size: 14px; font-weight: 500; }
+
+    .c-blue   rect, .c-blue   circle, .c-blue   ellipse { fill: #E6F1FB; stroke: #185FA5; }
+    .c-blue   .th, .c-blue   .t { fill: #0C447C; }
+    .c-blue   .ts { fill: #185FA5; }
+
+    .c-teal   rect, .c-teal   circle, .c-teal   ellipse { fill: #E1F5EE; stroke: #0F6E56; }
+    .c-teal   .th, .c-teal   .t { fill: #085041; }
+    .c-teal   .ts { fill: #0F6E56; }
+
+    .c-purple rect, .c-purple circle, .c-purple ellipse { fill: #EEEDFE; stroke: #534AB7; }
+    .c-purple .th, .c-purple .t { fill: #3C3489; }
+    .c-purple .ts { fill: #534AB7; }
+
+    .c-amber  rect, .c-amber  circle, .c-amber  ellipse { fill: #FAEEDA; stroke: #854F0B; }
+    .c-amber  .th, .c-amber  .t { fill: #633806; }
+    .c-amber  .ts { fill: #854F0B; }
+
+    .c-gray   rect, .c-gray   circle, .c-gray   ellipse { fill: #F1EFE8; stroke: #5F5E5A; }
+    .c-gray   .th, .c-gray   .t { fill: #444441; }
+    .c-gray   .ts { fill: #5F5E5A; }
+
+    .c-coral  rect, .c-coral  circle, .c-coral  ellipse { fill: #FAECE7; stroke: #993C1D; }
+    .c-coral  .th, .c-coral  .t { fill: #712B13; }
+    .c-coral  .ts { fill: #993C1D; }
+
+    .c-pink   rect, .c-pink   circle, .c-pink   ellipse { fill: #FBEAF0; stroke: #993556; }
+    .c-pink   .th, .c-pink   .t { fill: #72243E; }
+    .c-pink   .ts { fill: #993556; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <text class="th" x="340" y="32" text-anchor="middle">Pile protocole LTE — interface air Uu</text>
+
+  <text class="ts" x="150" y="54" text-anchor="middle">UE (mobile)</text>
+  <text class="ts" x="530" y="54" text-anchor="middle">eNB (station de base)</text>
+
+  <g class="c-amber"><rect x="80" y="70" width="140" height="42" rx="6" stroke-width="0.5"/></g>
+  <text class="th" x="150" y="92" text-anchor="middle">NAS</text>
+  <text class="ts" x="150" y="106" text-anchor="middle">attach, auth, bearers</text>
+
+  <line x1="222" y1="91" x2="458" y2="91" stroke="#3d3d3a" stroke-width="1" stroke-dasharray="4 3"/>
+  <text class="ts" x="340" y="84" text-anchor="middle">tunnel NAS — transparent à l'eNB</text>
+
+  <rect x="460" y="70" width="140" height="42" rx="6" fill="none" stroke="#3d3d3a" stroke-width="0.5" stroke-dasharray="3 3"/>
+  <text class="ts" x="530" y="92" text-anchor="middle">passthrough</text>
+  <text class="ts" x="530" y="106" text-anchor="middle">→ vers MME</text>
+
+  <g class="c-purple"><rect x="80" y="125" width="140" height="42" rx="6" stroke-width="0.5"/></g>
+  <text class="th" x="150" y="147" text-anchor="middle">RRC</text>
+  <text class="ts" x="150" y="161" text-anchor="middle">contrôle radio</text>
+
+  <line x1="222" y1="146" x2="458" y2="146" stroke="#3d3d3a" stroke-width="1" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text class="ts" x="340" y="138" text-anchor="middle">connection, mobilité, sys info</text>
+
+  <g class="c-purple"><rect x="460" y="125" width="140" height="42" rx="6" stroke-width="0.5"/></g>
+  <text class="th" x="530" y="147" text-anchor="middle">RRC</text>
+  <text class="ts" x="530" y="161" text-anchor="middle">peer</text>
+
+  <g class="c-blue"><rect x="80" y="180" width="140" height="42" rx="6" stroke-width="0.5"/></g>
+  <text class="th" x="150" y="202" text-anchor="middle">PDCP</text>
+  <text class="ts" x="150" y="216" text-anchor="middle">chiffrement, intégrité</text>
+
+  <line x1="222" y1="201" x2="458" y2="201" stroke="#3d3d3a" stroke-width="1" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text class="ts" x="340" y="193" text-anchor="middle">SN, ROHC, AES, ré-ordonnancement</text>
+
+  <g class="c-blue"><rect x="460" y="180" width="140" height="42" rx="6" stroke-width="0.5"/></g>
+  <text class="th" x="530" y="202" text-anchor="middle">PDCP</text>
+  <text class="ts" x="530" y="216" text-anchor="middle">peer</text>
+
+  <g class="c-teal"><rect x="80" y="235" width="140" height="42" rx="6" stroke-width="0.5"/></g>
+  <text class="th" x="150" y="257" text-anchor="middle">RLC</text>
+  <text class="ts" x="150" y="271" text-anchor="middle">segm., ARQ, modes</text>
+
+  <line x1="222" y1="256" x2="458" y2="256" stroke="#3d3d3a" stroke-width="1" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text class="ts" x="340" y="248" text-anchor="middle">TM / UM / AM</text>
+
+  <g class="c-teal"><rect x="460" y="235" width="140" height="42" rx="6" stroke-width="0.5"/></g>
+  <text class="th" x="530" y="257" text-anchor="middle">RLC</text>
+  <text class="ts" x="530" y="271" text-anchor="middle">peer</text>
+
+  <g class="c-coral"><rect x="80" y="290" width="140" height="42" rx="6" stroke-width="0.5"/></g>
+  <text class="th" x="150" y="312" text-anchor="middle">MAC</text>
+  <text class="ts" x="150" y="326" text-anchor="middle">HARQ, scheduling</text>
+
+  <line x1="222" y1="311" x2="458" y2="311" stroke="#3d3d3a" stroke-width="1" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text class="ts" x="340" y="303" text-anchor="middle">canaux logiques / transport</text>
+
+  <g class="c-coral"><rect x="460" y="290" width="140" height="42" rx="6" stroke-width="0.5"/></g>
+  <text class="th" x="530" y="312" text-anchor="middle">MAC</text>
+  <text class="ts" x="530" y="326" text-anchor="middle">peer</text>
+
+  <g class="c-gray"><rect x="80" y="345" width="140" height="42" rx="6" stroke-width="0.5"/></g>
+  <text class="th" x="150" y="367" text-anchor="middle">PHY</text>
+  <text class="ts" x="150" y="381" text-anchor="middle">OFDM, SC-FDMA</text>
+
+  <path d="M 222 366 Q 240 350 260 366 Q 280 382 300 366 Q 320 350 340 366 Q 360 382 380 366 Q 400 350 420 366 Q 440 382 458 366" fill="none" stroke="#185FA5" stroke-width="1.5"/>
+  <text class="ts" x="340" y="392" text-anchor="middle">Uu — interface air RF</text>
+
+  <g class="c-gray"><rect x="460" y="345" width="140" height="42" rx="6" stroke-width="0.5"/></g>
+  <text class="th" x="530" y="367" text-anchor="middle">PHY</text>
+  <text class="ts" x="530" y="381" text-anchor="middle">OFDM, SC-FDMA</text>
+
+  <text class="ts" x="340" y="430" text-anchor="middle">Le paquet IP entre au-dessus de PDCP, sort en symboles OFDM sur l'antenne.</text>
+  <text class="ts" x="340" y="448" text-anchor="middle">En 5G NR : ajout de SDAP au-dessus de PDCP, split CU/DU possible côté eNB.</text>
+
+</svg>

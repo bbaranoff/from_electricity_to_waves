@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 360" role="img" width="100%">
+  <title>Microcontrôleur, processeur, PC</title>
+  <desc>Trois niveaux d'intégration : MCU sur une puce unique, processeur multi-cœur avec caches, PC avec composants distincts reliés par des bus.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; fill: #3d3d3a; }
+    .t  { font-size: 14px; }
+    .ts { font-size: 12px; fill: #6c6b66; }
+    .th { font-size: 14px; font-weight: 500; }
+
+    .c-blue   rect, .c-blue   circle, .c-blue   ellipse { fill: #E6F1FB; stroke: #185FA5; }
+    .c-blue   .th, .c-blue   .t { fill: #0C447C; }
+    .c-blue   .ts { fill: #185FA5; }
+
+    .c-teal   rect, .c-teal   circle, .c-teal   ellipse { fill: #E1F5EE; stroke: #0F6E56; }
+    .c-teal   .th, .c-teal   .t { fill: #085041; }
+    .c-teal   .ts { fill: #0F6E56; }
+
+    .c-purple rect, .c-purple circle, .c-purple ellipse { fill: #EEEDFE; stroke: #534AB7; }
+    .c-purple .th, .c-purple .t { fill: #3C3489; }
+    .c-purple .ts { fill: #534AB7; }
+
+    .c-amber  rect, .c-amber  circle, .c-amber  ellipse { fill: #FAEEDA; stroke: #854F0B; }
+    .c-amber  .th, .c-amber  .t { fill: #633806; }
+    .c-amber  .ts { fill: #854F0B; }
+
+    .c-gray   rect, .c-gray   circle, .c-gray   ellipse { fill: #F1EFE8; stroke: #5F5E5A; }
+    .c-gray   .th, .c-gray   .t { fill: #444441; }
+    .c-gray   .ts { fill: #5F5E5A; }
+
+    .c-coral  rect, .c-coral  circle, .c-coral  ellipse { fill: #FAECE7; stroke: #993C1D; }
+    .c-coral  .th, .c-coral  .t { fill: #712B13; }
+    .c-coral  .ts { fill: #993C1D; }
+  </style>
+
+  <g class="c-blue"><rect x="40" y="60" width="180" height="280" rx="14" stroke-width="0.5"/></g>
+  <text class="th" x="130" y="86" text-anchor="middle">Microcontrôleur</text>
+  <text class="ts" x="130" y="104" text-anchor="middle">tout sur une puce</text>
+
+  <g class="c-purple"><rect x="60" y="120" width="140" height="36" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="130" y="142" text-anchor="middle">Cœur (1)</text>
+
+  <g class="c-teal"><rect x="60" y="166" width="66" height="36" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="93" y="188" text-anchor="middle">RAM</text>
+
+  <g class="c-teal"><rect x="134" y="166" width="66" height="36" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="167" y="188" text-anchor="middle">Flash</text>
+
+  <g class="c-amber"><rect x="60" y="212" width="140" height="36" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="130" y="234" text-anchor="middle">GPIO, UART, SPI</text>
+
+  <g class="c-amber"><rect x="60" y="258" width="140" height="36" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="130" y="280" text-anchor="middle">ADC, timers, I²C</text>
+
+  <text class="ts" x="130" y="320" text-anchor="middle">STM32, AVR, PIC...</text>
+
+  <g class="c-blue"><rect x="240" y="60" width="180" height="280" rx="14" stroke-width="0.5"/></g>
+  <text class="th" x="330" y="86" text-anchor="middle">Processeur</text>
+  <text class="ts" x="330" y="104" text-anchor="middle">multi-cœur, mémoire externe</text>
+
+  <g class="c-purple"><rect x="260" y="120" width="70" height="36" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="295" y="142" text-anchor="middle">Cœur 1</text>
+  <g class="c-purple"><rect x="334" y="120" width="70" height="36" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="369" y="142" text-anchor="middle">Cœur 2</text>
+  <g class="c-purple"><rect x="260" y="160" width="70" height="36" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="295" y="182" text-anchor="middle">Cœur 3</text>
+  <g class="c-purple"><rect x="334" y="160" width="70" height="36" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="369" y="182" text-anchor="middle">Cœur 4</text>
+
+  <g class="c-teal"><rect x="260" y="206" width="144" height="30" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="332" y="225" text-anchor="middle">Cache L1 (par cœur)</text>
+
+  <g class="c-teal"><rect x="260" y="240" width="144" height="30" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="332" y="259" text-anchor="middle">Cache L2 / L3 partagé</text>
+
+  <g class="c-amber"><rect x="260" y="274" width="144" height="30" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="332" y="293" text-anchor="middle">MMU, contrôleur bus</text>
+
+  <text class="ts" x="330" y="324" text-anchor="middle">x86, ARM Cortex-A...</text>
+
+  <g class="c-blue"><rect x="440" y="60" width="200" height="280" rx="14" stroke-width="0.5"/></g>
+  <text class="th" x="540" y="86" text-anchor="middle">PC</text>
+  <text class="ts" x="540" y="104" text-anchor="middle">carte mère, composants discrets</text>
+
+  <g class="c-purple"><rect x="460" y="120" width="80" height="50" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="500" y="142" text-anchor="middle">CPU</text>
+  <text class="ts" x="500" y="158" text-anchor="middle">(socket)</text>
+
+  <g class="c-teal"><rect x="552" y="120" width="80" height="50" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="592" y="142" text-anchor="middle">DDR RAM</text>
+  <text class="ts" x="592" y="158" text-anchor="middle">(DIMM)</text>
+
+  <g class="c-amber"><rect x="460" y="184" width="80" height="40" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="500" y="208" text-anchor="middle">GPU</text>
+
+  <g class="c-amber"><rect x="552" y="184" width="80" height="40" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="592" y="208" text-anchor="middle">SSD / NVMe</text>
+
+  <g class="c-gray"><rect x="460" y="240" width="172" height="34" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="546" y="261" text-anchor="middle">Chipset, bus PCIe / SATA / USB</text>
+
+  <g class="c-gray"><rect x="460" y="282" width="172" height="26" rx="6" stroke-width="0.5"/></g>
+  <text class="ts" x="546" y="299" text-anchor="middle">Alim, BIOS, réseau</text>
+
+  <text class="ts" x="540" y="328" text-anchor="middle">desktop, serveur, laptop</text>
+
+</svg>
