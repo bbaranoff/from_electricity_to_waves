@@ -1,5 +1,5 @@
 ```bash
-python3 pile_trace.py pile_values.csv
+python3 pile_trace.py pile_values.csv 4+4 --verbose
 ```
 
 ```
