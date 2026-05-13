@@ -1,0 +1,41 @@
+key,value
+# === MOSFET (Niveau 0) ===
+vdd_core_v,0.9
+mosfet_vth_v,0.4
+mosfet_mu_cox_uA_V2,400e-6
+mosfet_WL,4
+mosfet_cload_F,10e-15
+# === Réseau IP / Ethernet ===
+src_ip,10.45.0.42
+dst_ip,10.99.0.7
+src_mac,02:00:00:aa:bb:01
+dst_mac,02:00:00:cc:dd:fe
+# === TCP ===
+src_port,49152
+dst_port,8080
+tcp_seq,0x12345678
+tcp_ack,0x87654321
+tcp_window,8192
+# === LTE PHY ===
+earfcn_ul,19575
+f_carrier_hz,1747500000
+sample_rate_hz,30720000
+fft_size,2048
+bandwidth_hz,20000000
+n_prb,2
+prb_start,25
+mcs,9
+rnti,0x4601
+pci,1
+sfn,42
+subframe,3
+# === RF / Bilan ===
+p_tx_dbm,23
+g_tx_dbi,0
+g_rx_dbi,17
+distance_m,500
+path_loss_excess_db,30
+nf_db,3
+# === OLED (Niveau 15) ===
+oled_voltage_v,3.0
+oled_pixel_resistance_ohm,600000
