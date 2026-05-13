@@ -1,20 +1,106 @@
 ```bash
 python3 pile_trace.py pile_values.csv 4+4 --verbose
 ```
-
-```
-📁 Config chargée depuis pile_values.csv : 38 paramètres
+```txt
+📁 Config chargée : 38 paramètres
 🧮 Addition demandée : 4 + 4
 
 ========================================================================
-  NIVEAU 0 — MOSFET : U = R · I  (côté UE_A)
+  NIVEAU 0 COMPLET — Du clavier au registre (chaîne physique)
 ========================================================================
-  VDD          = 0.9 V
-  Vth          = 0.4 V
-  µn·Cox·(W/L) = 1600.0 µA/V²
-  I_D = ½·µCox·(W/L)·(Vgs−Vth)² = 200.0 µA
-  R_on = U / I = 4.50 kΩ
-  E_switch = ½·C·V² = 4.05 fJ par transition
+
+  📋 CHAÎNE DE TRAITEMENT :
+  Touche → Contact → Anti-rebond → MOSFET → Inverseur → NAND → Bascule → Registre
+     ↓         ↓          ↓          ↓         ↓        ↓        ↓         ↓
+   3.3V      0V/3.3V    0V/3.3V     I_D      NOT     NAND     D Q      Stockage
+
+========================================================================
+  NIVEAU 0_origin — Driver clavier Toy (touche → signal électrique)
+========================================================================
+  🎮 CLAVIER TOY - SAISIE : 4 + 4 = 8
+     • Touche : "8" (ASCII 0x38)
+     • Matrice : ligne 0, colonne 7
+     • Vcc = 3.3 V, R_pullup = 10 kΩ
+     • Anti-rebond : 10 ms
+
+  💾 SIGNAL NUMÉRIQUE FINAL :
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ Vout(V)   Digital                                              │
+  │  3.3 ┤██████████████████████████████████████████████████████████│
+  │  0.0 ┤                                                          │
+  │      ┼───────┬───────┬───────┬───────┬───────┬───────┬───────┬─┤
+  │        0      2      4      6      8     10     12     14     16
+  │                           t (ms)                                │
+  └─────────────────────────────────────────────────────────────────┘
+
+========================================================================
+  NIVEAU 0 — MOSFET NMOS : commutation clavier → courant
+========================================================================
+  🔌 SIGNAL D'ENTRÉE :
+     • Touche : "8" → V_GS = 3.3 V
+
+  ✅ MOSFET ACTIF :
+     • V_GS = 3.3 V, V_th = 0.4 V
+     • I_D = 6728.0 µA
+     • R_on = 0.13 kΩ
+     • E_switch = 4.05 fJ
+
+========================================================================
+  NIVEAU 0 bis — Inverseur CMOS (porte NOT)
+========================================================================
+  • VDD = 0.9 V, seuil = 0.45 V
+  • Vin = 0.0 V (sortie MOSFET)
+  • Vout = 0.9 V (NOT de Vin)
+  • NMOS = OFF, PMOS = ON
+
+  ⏱️  Délais : t_rise = 7.36 ps, t_fall = 2.94 ps
+
+========================================================================
+  NIVEAU 0 ter — Porte NAND (porte universelle)
+========================================================================
+  • Entrée A = 0 (bit de poids fort)
+  • Entrée B = 1 (bit de poids faible)
+  • NAND : Y = NOT(A AND B) = 1
+
+  Table de vérité :
+  ┌─────┬─────┬───────┐
+  │  A  │  B  │ Y=A·B │
+  ├─────┼─────┼───────┤
+  │  0  │  0  │   1   │
+  │  0  │  1  │   1   │
+  │  1  │  0  │   1   │
+  │  1  │  1  │   0   │
+  └─────┴─────┴───────┘
+
+  ⏱️  Délais : t_HL = 198.00 ps, t_LH = 247.50 ps
+
+========================================================================
+  NIVEAU 0 quart — Bascule D → Registre 2 bits
+========================================================================
+  🔷 BASCULE D MASTER-SLAVE
+     • Valeur à stocker : 1₁₀ = 01₂
+     • Horloge : front montant (1 GHz)
+
+     Simulation :
+     ┌───────┬─────┬─────┬─────┬─────┬─────┬─────────────┐
+     │ Cycle │ CLK │ D1  │ D0  │ Q1  │ Q0  │ État        │
+     ├───────┼─────┼─────┼─────┼─────┼─────┼─────────────┤
+     │   0   │  1  │  0  │  1  │  0  │  1  │ stocké 01   │
+     │   1   │  0  │  0  │  1  │  0  │  1  │ maintien    │
+     │   2   │  1  │  0  │  1  │  0  │  1  │ stocké 01   │
+     │   3   │  0  │  0  │  1  │  0  │  1  │ maintien    │
+     └───────┴─────┴─────┴─────┴─────┴─────┴─────────────┘
+
+  ⚡ Consommation : 64.80 µW
+  💾 Valeur stockée dans le registre : 1₁₀ = 01₂
+
+========================================================================
+  🔗 LIAISON NIVEAU 0 → NIVEAU 1 (Additionneur)
+========================================================================
+  • Le registre stocke la valeur : 1
+  • Cette valeur est chargée dans l'additionneur du Niveau 1
+  • Format : 1₁₀ = 01₂
+  • Les bits sont envoyés sur les entrées A et B de l'additionneur
 
 ========================================================================
   NIVEAU 1 — Full adder : 4 + 4 en binaire (bits auto)
@@ -28,6 +114,13 @@ python3 pile_trace.py pile_values.csv 4+4 --verbose
   bit  2 : A=1 B=1 Cin=0  →  S=0 Cout=1
   bit  3 : A=0 B=0 Cin=1  →  S=1 Cout=0
   Résultat : 1000₂ = 8₁₀
+
+  🔗 LIAISON AVEC LE NIVEAU 0 :
+     • Les entrées 4 et 4 viennent du registre du Niveau 0
+     • Le résultat 8 va être envoyé au Niveau 2 (ARM ALU)
+
+  ⚠️ NOTE : Le registre stocke 1, l'addition donne 8
+      (Le registre simule la saisie clavier, l'additionneur calcule indépendamment)
 
 ========================================================================
   NIVEAU 2 — Instruction ARMv8 ADD
@@ -374,7 +467,8 @@ python3 pile_trace.py pile_values.csv 4+4 --verbose
   └──────────────────────────────────────────────────────────────┘
 
 ========================================================================
-  ✅ Trace complète terminée. 4+4=8 du transistor au sous-pixel.
+  ✅ Trace complète. 4+4=8
+  🔄 Hiérarchie complète : Clavier → MOSFET → Inverseur → NAND → Bascule → Registre → Additionneur → ... → OLED
 ========================================================================
 
   🔄 Le résultat a voyagé :
@@ -383,5 +477,6 @@ python3 pile_trace.py pile_values.csv 4+4 --verbose
      → RF → Propagation → Réception → Démodulation → Décapsulation
      → Glyphe → OLED
   📐 Loi U = R·I vérifiée aux deux extrémités (TX: MOSFET, RX: OLED)
+```
   📐 Loi U = R·I vérifiée aux deux extrémités (TX: MOSFET, RX: OLED)
   ```
