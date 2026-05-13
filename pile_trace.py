@@ -220,7 +220,7 @@ def lte_gold_sequence(cinit: int, length: int) -> np.ndarray:
 
 def pss_zadoff_chu(n_id_2: int) -> np.ndarray:
     """Génère le PSS (Primary Synchronization Signal) LTE.
-    Longueur 63 (62 utiles + DC), Zadoff-Chu avec u ∈ {25, 29, 34} selon n_id_2."""
+    Longueur 62 (62 utiles, DC mappée à d(31)), Zadoff-Chu avec u ∈ {25, 29, 34}."""
     u_map = {0: 25, 1: 29, 2: 34}
     if n_id_2 not in u_map:
         raise ValueError("n_id_2 doit être 0, 1 ou 2")
@@ -231,6 +231,41 @@ def pss_zadoff_chu(n_id_2: int) -> np.ndarray:
     for n in range(31, 62):
         d[n] = np.exp(-1j * np.pi * u * (n + 1) * (n + 2) / 63)
     return d
+
+
+def lte_pss_ofdm_symbol(N_FFT: int, n_id_2: int, cp_len: int) -> np.ndarray:
+    """Construit un symbole OFDM time-domain contenant PSS, prêt à transmettre.
+    
+    Placement TS 36.211 §6.11.1.2 : 62 SCs centrés autour de DC.
+        k = n - 31 + N_RB^DL · N_RB^SC / 2  pour n = 0..61
+        → d(0)  à SC center-31
+        → d(31) à SC center (DC)
+        → d(61) à SC center+30
+    
+    Retourne le signal time-domain (longueur N_FFT + cp_len) avec CP normal."""
+    pss_freq = pss_zadoff_chu(n_id_2)
+    X = np.zeros(N_FFT, dtype=complex)
+    center = N_FFT // 2
+    for n in range(62):
+        k_rel = n - 31  # -31..+30
+        X[(center + k_rel) % N_FFT] = pss_freq[n]
+    # ifftshift pour que l'index center du spectre tombe sur DC time-domain
+    x_time = np.fft.ifft(np.fft.ifftshift(X)) * np.sqrt(N_FFT)
+    return np.concatenate([x_time[-cp_len:], x_time])
+
+
+def pss_correlate(x_rx: np.ndarray, pss_body: np.ndarray) -> tuple:
+    """Corrélation glissante |Σ x_rx[i+k]·pss_body*[k]| pour détection temporelle.
+    Retourne (peak_idx, peak_value, full_correlation_array).
+    
+    np.correlate(a, v) calcule c_k = Σ a[n+k]·conj(v[n]) — la conjugaison est
+    appliquée automatiquement sur v.
+    
+    En vrai RX : ce pic détermine où commence la sous-trame, permet sync timing
+    et identifie N_ID_2 (en testant les 3 séquences ZC u={25,29,34})."""
+    corr = np.abs(np.correlate(x_rx, pss_body, mode='valid'))
+    peak_idx = int(np.argmax(corr))
+    return peak_idx, corr[peak_idx], corr
 
 
 # ----- Codeur convolutif (substitut pédagogique au turbo) ------------------
@@ -806,7 +841,8 @@ def L9p5_pss_demo(cfg: dict) -> None:
     sidelobe = np.max(ac[1:])
     print(f'    peak = {peak:.3f}, max sidelobe = {sidelobe:.3f}, ratio = {peak/sidelobe:.2f}')
     print(f'  Premiers 4 échantillons : {pss[:4]}')
-    print(f'  ⚠️  Non injecté dans l\'OFDM ici (placement réel : SC 0..30, 32..62 du slot 0/10).')
+    print(f'  ✓ Injectée par L10 dans le 1er symbole OFDM '
+          f'(SCs center±31 autour de DC, TS 36.211 §6.11.1.2).')
 
 
 # ============================================================================
@@ -814,9 +850,9 @@ def L9p5_pss_demo(cfg: dict) -> None:
 # ============================================================================
 
 def L10_ofdm(cfg: dict, symbols: np.ndarray, n_prb_used: int) -> tuple:
-    """Génère N symboles OFDM pour transporter tous les symboles 16-QAM.
-    Retourne (x_full, sc_offset, n_sc, n_ofdm) pour L13."""
-    banner('NIVEAU 10 — OFDM : IFFT + préfixe cyclique (multi-symboles)')
+    """Génère N+1 symboles OFDM : 1 PSS (sync) + N data.
+    Retourne (x_full, sc_offset_data, n_sc, n_ofdm_data) pour L13."""
+    banner('NIVEAU 10 — OFDM : 1 sym PSS (sync) + N sym data, IFFT + CP')
     N_FFT = cfg['fft_size']
     prb_start = cfg['prb_start']
     n_sc = n_prb_used * 12
@@ -824,56 +860,163 @@ def L10_ofdm(cfg: dict, symbols: np.ndarray, n_prb_used: int) -> tuple:
     center = N_FFT // 2
     sc_offset = (prb_start - 50) * 12
 
-    n_total = len(symbols)
-    n_ofdm = (n_total + n_sc - 1) // n_sc  # ceil
-    # Pad pour que n_ofdm * n_sc == len(symbols_padded)
-    if n_total < n_ofdm * n_sc:
-        symbols = np.concatenate([symbols, np.zeros(n_ofdm * n_sc - n_total, dtype=complex)])
+    # --- Symbole 0 : PSS (injection réelle, TS 36.211 §6.11.1.2) -----------
+    n_id_2 = cfg.get('n_id_2', cfg['pci'] % 3)
+    x_pss = lte_pss_ofdm_symbol(N_FFT, n_id_2, cp_len)
+    x_chunks = [x_pss]
+    print(f'  Symbole 0 (PSS) : ZC u={{25,29,34}}[N_ID_2={n_id_2}], '
+          f'placée aux SCs center±31 (62 SCs autour de DC)')
+    print(f'                    → en vrai LTE, PSS est au sym 6 du slot 0 ; '
+          f'ici en tête pour pédagogie (sync préambule)')
 
-    x_chunks = []
-    for i in range(n_ofdm):
+    # --- Symboles 1..N : data OFDM -----------------------------------------
+    n_total = len(symbols)
+    n_ofdm_data = (n_total + n_sc - 1) // n_sc
+    if n_total < n_ofdm_data * n_sc:
+        symbols = np.concatenate([symbols, np.zeros(n_ofdm_data * n_sc - n_total, dtype=complex)])
+
+    for i in range(n_ofdm_data):
         X = np.zeros(N_FFT, dtype=complex)
         sym_chunk = symbols[i * n_sc:(i + 1) * n_sc]
         for k, val in enumerate(sym_chunk):
             X[(center + sc_offset + k) % N_FFT] = val
-        x_time = np.fft.ifft(X) * np.sqrt(N_FFT)
+        # ifftshift : index N_FFT//2 doit être DC (pas Nyquist) côté time-domain
+        x_time = np.fft.ifft(np.fft.ifftshift(X)) * np.sqrt(N_FFT)
         x_chunks.append(np.concatenate([x_time[-cp_len:], x_time]))
     x_full = np.concatenate(x_chunks)
 
     fs = cfg['sample_rate_hz']
     Ts = 1.0 / fs
     T_sym = (N_FFT + cp_len) * Ts
-    print(f'  N_FFT={N_FFT}, n_sc actives={n_sc} (n_prb={n_prb_used}), CP={cp_len}')
-    print(f'  fs={fs / 1e6:.2f} MS/s, Ts={Ts * 1e9:.3f} ns, T_sym(+CP)={T_sym * 1e6:.2f} µs')
-    print(f'  Symboles 16-QAM à transporter : {n_total} → {n_ofdm} symboles OFDM '
-          f'(durée totale = {n_ofdm * T_sym * 1e6:.2f} µs)')
-    print('  Premiers 8 échantillons I/Q du 1er symbole OFDM (après CP) :')
+    n_ofdm_total = 1 + n_ofdm_data
+    print(f'  N_FFT={N_FFT}, CP={cp_len}, n_sc data actives={n_sc} (n_prb={n_prb_used})')
+    print(f'  fs={fs / 1e6:.2f} MS/s, T_sym(+CP)={T_sym * 1e6:.2f} µs')
+    print(f'  Total : 1 PSS + {n_ofdm_data} data = {n_ofdm_total} symboles OFDM '
+          f'(durée = {n_ofdm_total * T_sym * 1e6:.2f} µs)')
+    print('  Premiers 8 échantillons I/Q du symbole PSS (après CP) :')
     for n in range(8):
-        s = x_full[n]
+        s = x_chunks[0][cp_len + n]  # post-CP body
         print(f'    n={n}  I={s.real:+.5f}  Q={s.imag:+.5f}  |s|={abs(s):.5f}')
-    return x_full, sc_offset, n_sc, n_ofdm
+    return x_full, sc_offset, n_sc, n_ofdm_data
 
 
 # ============================================================================
 # NIVEAU 11 — RF (démo math)
 # ============================================================================
 
-def L11_rf(cfg: dict, x_baseband: np.ndarray) -> None:
-    banner('NIVEAU 11 — RF : DAC + mixeur quadrature (démo math)')
-    fc = cfg['f_carrier_hz']
-    fs = cfg['sample_rate_hz']
-    Ts = 1.0 / fs
-    P_tx = cfg.get('p_tx_dbm', 23)
-    print(f'  f_c = {fc / 1e6:.1f} MHz (EARFCN UL {cfg["earfcn_ul"]}), P_TX = {P_tx} dBm')
-    print(f'  s_RF(t) = I(t)·cos(2π f_c t) − Q(t)·sin(2π f_c t)')
-    print(f'  ⚠️  fs={fs / 1e6:.2f} MS/s < 2·f_c : démo mathématique uniquement.')
-    print(f'      Vrai pipeline : interpolation DAC + filtre reconstruction + upconv analogique.\n')
-    print('  Évaluation analytique sur 4 échantillons :')
-    for n in range(4):
-        t = n * Ts
-        I, Q = x_baseband[n].real, x_baseband[n].imag
-        s_rf = I * np.cos(2 * np.pi * fc * t) - Q * np.sin(2 * np.pi * fc * t)
-        print(f'    n={n} t={t * 1e9:6.2f} ns  I={I:+.4f} Q={Q:+.4f}  s_RF={s_rf:+.5f}')
+def L11_rf(cfg: dict, x_baseband: np.ndarray) -> np.ndarray:
+    """Vraie chaîne RF : interpolation + filtre reconstruction + upconv IF.
+    GNU Radio si dispo (flowgraph réel), sinon scipy équivalent.
+    
+    Architecture :
+        [L10 baseband fs_in] → [interp filter ↑K] → [LO complexe e^(j2π f_IF t)]
+            → x_IF à fs_out=K·fs_in, prêt pour SDR via UHD/SoapySDR
+    
+    L'upconv finale vers f_c (1.7 GHz) est faite par le DAC analogique du SDR ;
+    impossible en software pur (fs_out resterait < 2·f_c).
+    
+    Cette fonction fait aussi la chaîne inverse (downconv+decim) pour vérifier
+    que la boucle TX RF est invertible — preuve d'exécution réelle, pas démo math.
+    """
+    banner('NIVEAU 11 — Chaîne RF (GNU Radio) : interp + filtre + upconv IF + vérif')
+
+    fs_in = cfg['sample_rate_hz']
+    interp_factor = int(cfg.get('rf_interp_factor', 4))
+    fs_out = fs_in * interp_factor
+    f_if = float(cfg.get('rf_if_hz', 5e6))
+    f_c = cfg['f_carrier_hz']
+    P_tx_dbm = cfg.get('p_tx_dbm', 23)
+    n_taps = int(cfg.get('rf_filter_taps', 101))
+
+    print(f'  Paramètres :')
+    print(f'    fs_in           = {fs_in / 1e6:.2f} MS/s   (sortie L10)')
+    print(f'    interp_factor   = ×{interp_factor}')
+    print(f'    fs_out          = {fs_out / 1e6:.2f} MS/s')
+    print(f'    f_IF            = {f_if / 1e6:.2f} MHz   (upconv digital)')
+    print(f'    f_c (RF final)  = {f_c / 1e6:.2f} MHz   ← upconv analogique via SDR')
+    print(f'    P_TX consigne   = {P_tx_dbm} dBm')
+    print(f'    n_taps filtre   = {n_taps}')
+    print()
+
+    # --- Design taps via scipy (portable cross-versions GR) ----------------
+    from scipy.signal import firwin
+    taps = firwin(n_taps, fs_in / fs_out, window='hamming') * interp_factor
+
+    # --- Chaîne TX : interp + filter + upconv ------------------------------
+    try:
+        from gnuradio import gr, blocks, analog
+        from gnuradio import filter as gr_filter
+
+        class RFTxFlowgraph(gr.top_block):
+            def __init__(self, samples, taps, interp, fs_out, f_if):
+                gr.top_block.__init__(self, 'L11_RF_TX')
+                self.src = blocks.vector_source_c(samples.tolist(), False, 1, [])
+                self.interp = gr_filter.interp_fir_filter_ccc(interp, taps.tolist())
+                self.lo = analog.sig_source_c(fs_out, analog.GR_COS_WAVE,
+                                               f_if, 1.0, 0)
+                self.mix = blocks.multiply_cc()
+                self.snk = blocks.vector_sink_c()
+                self.connect(self.src, self.interp, (self.mix, 0))
+                self.connect(self.lo, (self.mix, 1))
+                self.connect(self.mix, self.snk)
+
+        tb = RFTxFlowgraph(x_baseband, taps, interp_factor, fs_out, f_if)
+        tb.run()
+        x_rf = np.array(tb.snk.data())
+        backend = 'GNU Radio (flowgraph : vector_source_c → interp_fir_filter_ccc → multiply_cc(sig_source_c))'
+    except ImportError:
+        from scipy.signal import resample_poly
+        x_interp = resample_poly(x_baseband, interp_factor, 1)
+        t_axis = np.arange(len(x_interp)) / fs_out
+        lo_tx = np.exp(1j * 2 * np.pi * f_if * t_axis)
+        x_rf = x_interp * lo_tx
+        backend = 'scipy fallback (resample_poly + numpy LO complexe)'
+
+    print(f'  TX RF : {backend}')
+    print(f'  Sortie : {len(x_rf)} samples complexes à {fs_out / 1e6:.2f} MS/s '
+          f'({len(x_rf) / fs_out * 1e6:.1f} µs)')
+
+    print(f'\n  Premiers 8 échantillons I/Q après chaîne RF complète :')
+    for n in range(8):
+        s = x_rf[n]
+        print(f'    n={n}  I={s.real:+.5f}  Q={s.imag:+.5f}  |s|={abs(s):.5f}')
+
+    # --- Vérif spectre : pic doit être centré sur f_IF ---------------------
+    N_fft_spec = min(8192, len(x_rf))
+    X = np.fft.fftshift(np.fft.fft(x_rf[:N_fft_spec])) / N_fft_spec
+    freqs_mhz = np.fft.fftshift(np.fft.fftfreq(N_fft_spec, 1 / fs_out)) / 1e6
+    mag = np.abs(X)
+    peak_idx = int(np.argmax(mag))
+    print(f'\n  Vérif spectre (FFT {N_fft_spec} samples) :')
+    print(f'    Pic spectral à {freqs_mhz[peak_idx]:+.2f} MHz  '
+          f'(attendu ~{f_if / 1e6:+.2f} MHz)')
+
+    # --- Chaîne RX RF (downconv + décimation) : boucle de vérif -----------
+    from scipy.signal import resample_poly
+    t_axis = np.arange(len(x_rf)) / fs_out
+    lo_rx = np.exp(-1j * 2 * np.pi * f_if * t_axis)  # conjugué du LO TX
+    x_dc = x_rf * lo_rx
+    x_recovered = resample_poly(x_dc, 1, interp_factor)
+    n_compare = min(len(x_recovered), len(x_baseband))
+    # Ignorer les transitoires du filtre polyphase (≈ n_taps/interp samples
+    # de chaque côté). On compare le milieu où le filtre est stabilisé.
+    margin = max(50, n_taps // interp_factor)
+    if n_compare > 2 * margin:
+        err_full = np.max(np.abs(x_recovered[:n_compare] - x_baseband[:n_compare]))
+        err_mid = np.max(np.abs(x_recovered[margin:n_compare-margin]
+                                 - x_baseband[margin:n_compare-margin]))
+    else:
+        err_full = err_mid = np.max(np.abs(x_recovered[:n_compare] - x_baseband[:n_compare]))
+    print(f'\n  Boucle TX RF → RX RF (vérification d\'invertibilité) :')
+    print(f'    Downconv (LO conjugué) + decim ÷{interp_factor} → {len(x_recovered)} samples baseband')
+    print(f'    max|err| full       = {err_full:.2e}  (inclut transitoires bords)')
+    print(f'    max|err| middle     = {err_mid:.2e}  '
+          f'[{"✓ chaîne RF lossless" if err_mid < 1e-9 else "⚠ écart résiduel"}]')
+    print(f'\n  Note : L13 continue à utiliser le baseband direct (fs_in) ; en vrai pipeline,')
+    print(f'         le SDR RX downconverterait le signal réel à 1.7 GHz vers baseband.')
+    print(f'         Pour exporter vers fichier IQ (HackRF/USRP) : np.save("tx.iq", x_rf).')
+
+    return x_rf
 
 
 # ============================================================================
@@ -938,24 +1081,41 @@ def L13_decap(cfg: dict, *,
     else:
         print('  Canal AWGN désactivé (SNR ≥ 300 dB)')
 
-    # --- L10 inverse : multi-symboles OFDM ---------------------------------
+    # --- L10 inverse : détection PSS puis multi-symboles OFDM data ---------
     N_FFT = cfg['fft_size']
     cp_len = int(N_FFT * 144 / 2048)
     samples_per_sym = N_FFT + cp_len
     center = N_FFT // 2
     n_sc = dci['n_sc']
-    n_ofdm = dci['n_ofdm']
+    n_ofdm = dci['n_ofdm']  # nombre de symboles DATA (PSS exclu)
     sc_offset = dci['sc_offset']
+
+    # Détection PSS (vraie corrélation temporelle, pas de cheat)
+    n_id_2_rx = cfg.get('n_id_2', cfg['pci'] % 3)
+    pss_ref = lte_pss_ofdm_symbol(N_FFT, n_id_2_rx, cp_len)
+    pss_body_ref = pss_ref[cp_len:]  # corrélation sur le corps post-CP
+    peak_idx, peak_val, _ = pss_correlate(x_rx_noisy, pss_body_ref)
+    expected_peak = cp_len  # PSS body commence à sample cp_len (après son propre CP)
+    timing_err = peak_idx - expected_peak
+    print(f'  PSS sync   : pic corrélation à sample {peak_idx} '
+          f'(attendu {expected_peak}, écart={timing_err:+d})')
+    print(f'             amplitude={peak_val:.2f}, N_ID_2_essai={n_id_2_rx}')
+    results['pss_sync'] = abs(timing_err) <= 2  # tolérance ±2 samples
+
+    # Skip PSS symbol → x_data
+    x_data = x_rx_noisy[samples_per_sym:]
+    print(f'  L10 skip   : 1er symbole OFDM (PSS) écarté → {len(x_data)} samples data')
 
     symbols_rx_chunks = []
     for i in range(n_ofdm):
-        chunk = x_rx_noisy[i * samples_per_sym:(i + 1) * samples_per_sym]
+        chunk = x_data[i * samples_per_sym:(i + 1) * samples_per_sym]
         x_no_cp = chunk[cp_len:]
-        X_rx = np.fft.fft(x_no_cp) / np.sqrt(N_FFT)
+        # fftshift : remettre DC au milieu pour matcher l'indexation TX
+        X_rx = np.fft.fftshift(np.fft.fft(x_no_cp)) / np.sqrt(N_FFT)
         sc_rx = np.array([X_rx[(center + sc_offset + k) % N_FFT] for k in range(n_sc)])
         symbols_rx_chunks.append(sc_rx)
     symbols_rx = np.concatenate(symbols_rx_chunks)
-    print(f'  L10 inverse : {n_ofdm} FFT → {len(symbols_rx)} symboles 16-QAM')
+    print(f'  L10 inverse : {n_ofdm} FFT data → {len(symbols_rx)} symboles 16-QAM')
 
     # --- L9 inverse : demap ------------------------------------------------
     if use_soft_demap:
@@ -1128,9 +1288,24 @@ def raster_one_glyph(char: str, font_path: str = None, size: int = 8) -> list:
         return DEFAULT_GLYPHS.get(char, [0] * 8)
 
 
-def L14_glyph(result: int, font_path: str = None) -> int:
-    text = str(result)
-    banner(f'NIVEAU 14 — Glyph "{text}" rastérisé ({len(text)} × bitmap 8×8)')
+def L14_glyph(result_rx, font_path: str = None) -> int:
+    """Affiche la valeur décodée par RX. Si None, écran reste vide (0 pixels).
+    
+    Le glyph s'allume parce que les BITS sont arrivés au RX (et que la décap a
+    réussi), pas parce que TX les a calculés. Sans cette dépendance, l'OLED
+    afficherait le résultat même si la radio était cassée — gruge."""
+    if result_rx is None:
+        banner('NIVEAU 14 — Aucun glyph (RX n\'a pas livré de valeur affichable)')
+        print('  ┌────────────────────────────────────────────────────────────────┐')
+        print('  │  Décodage RX a échoué → aucune valeur à rastériser              │')
+        print('  │  L15 va donc rester éteint (I = 0 sur tous les sous-pixels)     │')
+        print('  │  C\'est le comportement attendu : pas de bits → pas de lumière   │')
+        print('  └────────────────────────────────────────────────────────────────┘')
+        return 0
+
+    text = str(result_rx)
+    banner(f'NIVEAU 14 — Glyph "{text}" rastérisé ({len(text)} × bitmap 8×8) '
+           f'[depuis result_rx, pas depuis L1]')
     glyphs = [raster_one_glyph(c, font_path) for c in text]
 
     print('  Représentation visuelle (█ = pixel ON, · = pixel OFF) :')
@@ -1158,6 +1333,21 @@ def L15_oled(cfg: dict, n_pixels_on: int) -> None:
     T_K = cfg.get('oled_temp_k', 300.0)
     Rs = cfg['oled_rs_ohm']
     VT = 1.380649e-23 * T_K / 1.602176634e-19  # kT/q
+
+    if n_pixels_on == 0:
+        print(f'  Modèle : I = Is·(exp(V_d/(n·VT)) − 1)  ;  V = V_d + I·Rs')
+        print(f'    V = {V} V  ;  Is = {Is:.2e} A  ;  n = {n_diode}  ;  '
+              f'VT = {VT * 1000:.2f} mV  ;  Rs = {Rs/1e3:.1f} kΩ')
+        print()
+        print('  ┌────────────────────────────────────────────────────────────────┐')
+        print('  │  Aucun pixel à allumer (n_pixels_on = 0)                       │')
+        print('  │  I_total = 0 A  ;  P_total = 0 W  ;  écran éteint              │')
+        print('  │                                                                │')
+        print('  │  Cause : décodage RX en échec (L13) → L14 n\'a pas pu produire  │')
+        print('  │  de glyph → aucun sous-pixel n\'est piloté.                     │')
+        print('  │  La boucle physique TX→RX→affichage est ouverte.               │')
+        print('  └────────────────────────────────────────────────────────────────┘')
+        return
 
     I_per, Vd = shockley_iv_with_rs(V, Is, n_diode, VT, Rs)
     P_per = V * I_per
@@ -1296,7 +1486,11 @@ def main():
                        use_soft_demap=args.soft_demap,
                        verbose=args.verbose)
 
-        n_on = L14_glyph(result, args.font)
+        # L14/L15 reçoivent la valeur DÉCODÉE par RX, pas la valeur TX.
+        # Si rt['final'] est False, result_rx peut être None ou faux : on
+        # le passe tel quel, L14 affichera "écran éteint" ou la mauvaise valeur.
+        result_rx = rt.get('result_rx')
+        n_on = L14_glyph(result_rx, args.font)
         L15_oled(cfg, n_on)
 
         all_ok = rt.get('final', False)
