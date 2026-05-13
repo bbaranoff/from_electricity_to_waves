@@ -207,121 +207,140 @@ python3 pile_trace.py pile_values.csv 4+4 --verbose
   NIVEAU 13 — Décapsulation symétrique côté UE_B (récap)
 ========================================================================
 
-  📡 DÉTAIL COMPLET DE LA DÉCAPSULATION AVEC CALCULS :
+  📡 DÉCAPSULATION DYNAMIQUE (appels inverses) :
 
-   1. Antenne RX → LNA
-      └─ Gain ≈ 20 dB, NF ≈ 1.5 dB
-         • Puissance reçue (calculée au Niveau 12) : Pr = -81.3 dBm
-         • Après LNA : P_rx = -81.3 + 20 = -61.3 dBm
-         • Bruit ajouté par le LNA : NF = 1.5 dB → F = 10^(1.5/10) = 1.41
+   🔄 Niveau 11 (inverse) : Réception RF → Baseband I/Q
+      • s_RF(t) reçu → down-conversion avec f_c = 1747.5 MHz
+      • I(t) = s_RF(t)·cos(2πf_c t) → filtre passe-bas
+      • Q(t) = -s_RF(t)·sin(2πf_c t) → filtre passe-bas
 
-   2. Mixeur down-conversion
-      └─ I(t) = s_RF(t)·cos(2πf_c t), Q(t) = -s_RF(t)·sin(2πf_c t)
-         • Fréquence porteuse f_c = 1747.5 MHz
-         • Échantillons reçus (premiers I/Q) :
-           - I0 = +1.7347, Q0 = +1.5235
-           - I1 = -2.2667, Q1 = +0.4814
-           - I2 = +0.9774, Q2 = -2.1141
+   🔄 Niveau 10 (inverse) : Démodulation OFDM
+      • Suppression du CP (144 échantillons)
+      • FFT N=2048 → retour domaine fréquentiel
+      • Extraction des 24 sous-porteuses actives
 
-   3. ADC 12 bits
-      └─ Échantillonnage à 30.72 MS/s
-         • Tension pleine échelle : Vref = 1.8 V
-         • Résolution : 1.8 / 4096 = 0.44 mV/LSB
-         • Quantification : Q = round(V / 0.44 mV)
-         • Premier échantillon : I=1.7347V → code = 3942
+      📊 CALCUL FFT DÉTAILLÉ :
+      X[k] = Σ x[n]·e^(-j2πkn/N) pour k=0..N-1
+      • X_freq calculé pour 2048 points
+      • Sous-porteuses actives : indices 724 à 747
 
-   4. Suppression CP
-      └─ Retrait des 144 échantillons de préfixe cyclique par symbole OFDM
-         • Trame reçue : 2192 échantillons/symbole
-         • Suppression des 144 premiers échantillons
-         • Conservation des 2048 échantillons utiles
+      🎯 SYMBOLES 16-QAM RECONSTRUITS (premiers) :
+        - s0 = +1.2575 + -0.3935j
+        - s1 = +0.5778 + -0.6492j
+        - s2 = -1.0905 + +0.7187j
+        - s3 = +1.1800 + -0.0805j
 
-   5. FFT 2048
-      └─ Transformée de Fourier rapide N=2048
-         • X[k] = Σ x[n]·e^(-j2πkn/2048)
-         • Restitution des 24 sous-porteuses actives
-         • Énergie moyenne après FFT : E[|X|²] = 82.94
+   🔄 Niveau 9 (inverse) : Démodulation 16-QAM → LLR
+      • SNR estimée = 16.7 dB → σ² = 0.021380
+      • Formules LLR (soft-demapping) :
+        LLR(b0) = -4·Re(s) / (√10·σ²)
+        LLR(b1) = -4·Im(s) / (√10·σ²)
+        LLR(b2) = -4·(2 - |Re(s)|·√10) / (√10·σ²)
+        LLR(b3) = -4·(2 - |Im(s)|·√10) / (√10·σ²)
 
-   6. Démap 16-QAM
-      └─ Calcul des LLR (Log-Likelihood Ratio)
-         • LLR(b0) = -4·Re(s) / (√10·σ²)
-         • LLR(b1) = -4·Im(s) / (√10·σ²)
-         • LLR(b2) = -4·(2 - |Re(s)|·√10) / (√10·σ²)
-         • LLR(b3) = -4·(2 - |Im(s)|·√10) / (√10·σ²)
-         • SNR estimée = 16.7 dB → σ² ≈ 0.021
-         • Premier symbole s=0.3162+0.3162j → LLR≈[-4, -4, +12, +12]
+      📊 CALCUL LLR DÉTAILLÉ :
 
-   7. Dé-scramble
-      └─ Application du même seed : RNTI=0x4601, PCI=1, sf=3
-         • Seed = 1174470915
-         • c(n) = (x1(n+Nc) + x2(n+Nc)) mod 2
-         • Dé-sembrouillage : b_reçu(n) = b_scramblé(n) ⊕ c(n)
-         • Rétablissement des bits codés originaux
+      Symbole 0: s = +1.2575 + -0.3935j
+        LLR(b0) = -74.40 → bit = 0
+        LLR(b1) = +23.28 → bit = 1
+        LLR(b2) = +116.95 → bit = 1
+        LLR(b3) = -44.71 → bit = 0
 
-   8. Turbo decode
-      └─ Décodage itératif Max-Log-MAP
-         • Itérations : 8 (max 16)
-         • BER cible : < 10⁻⁶
-         • Taux de code : 1/3
-         • Polynômes RSC : (1, 1+D²+D³, 1+D+D³)
-         • 480 bits d’entrée → 1440 bits décodés
-         • Gain de codage ≈ 7 dB à BER=10⁻⁵
+      Symbole 1: s = +0.5778 + -0.6492j
+        LLR(b0) = -34.19 → bit = 0
+        LLR(b1) = +38.41 → bit = 1
+        LLR(b2) = -10.22 → bit = 0
+        LLR(b3) = +3.13 → bit = 1
 
-   9. CRC-24A vérification
-      └─ Calcul du CRC-24A sur le TB reçu
-         • Poly = 0x1864CFB = x²⁴ + x²³ + x⁶ + x⁵ + x³ + x + 1
-         • CRC calculé à l'émission : 0xDD5713
-         • CRC recalculé à la réception : 0xDD5713
-         • ✅ Vérification OK → ACK envoyé à l'émetteur
-         • Si erreur → NACK + requête HARQ (retransmission)
+      Symbole 2: s = -1.0905 + +0.7187j
+        LLR(b0) = +64.52 → bit = 1
+        LLR(b1) = -42.52 → bit = 0
+        LLR(b2) = +85.69 → bit = 1
+        LLR(b3) = +16.14 → bit = 1
 
-  10. MAC démux LCID
-      └─ Extraction du RLC PDU en fonction du Logical Channel ID
-         • LCID = 0x01 (DCCH/DTCH)
-         • MAC header : 0x01 0x37 (LCID + longueur)
-         • Extraction du RLC PDU (55 octets)
+      Symbole 3: s = +1.1800 + -0.0805j
+        LLR(b0) = -69.81 → bit = 0
+        LLR(b1) = +4.76 → bit = 1
+        LLR(b2) = +102.44 → bit = 1
+        LLR(b3) = -103.27 → bit = 0
 
-  11. RLC réassemble
-      └─ Réassemblage des segments RLC UM en PDCP PDU complet
-         • RLC header : 0xC0 (UM avec extension SN=12 bits)
-         • RLC SN = 0x123
-         • Fi = 0 (pas de segmentation)
-         • PDCP PDU reconstitué (54 octets)
+      ✅ Bits reconstruits (premiers 16) :
+        [0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0]
 
-  12. PDCP déchiffre
-      └─ Déchiffrement AES-CTR avec le même compteur que l'émission
-         • PDCP SN = 0x123
-         • Clé dérivée du RNTI (SHA-256 → AES-128)
-         • Compteur : nonce = MD5(RNTI||SN)
-         • Déchiffrement : plain = cipher ⊕ keystream
-         • Paquet IP restauré (52 octets)
-         • Vérification MAC-I (optionnelle)
+   🔄 Niveau 8 (inverse) : Déscramble + Décodage Turbo
+      • Seed = 1174470915 (RNTI=0x4601, PCI=1, SF=3)
+      • Générateur de scrambling LTE (registres à décalage) :
+        c(n) = (x1(n+Nc) + x2(n+Nc)) mod 2
+        x1(n+31) = (x1(n+3) + x1(n)) mod 2
+        x2(n+31) = (x2(n+3) + x2(n+2) + x2(n+1) + x2(n)) mod 2
+        Nc = 1600
+      • Premiers bits scrambling : [1 0 0 0 1 1 0 0 0 0 0 1 0 0 0 0]
+      • Bits reçus (scramblés)    : [0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0]
+      • Après XOR                 : [np.int64(1), np.int64(1), np.int64(1), np.int64(0), np.int64(1), np.int64(0), np.int64(0), np.int64(1), np.int64(1), np.int64(0), np.int64(1), np.int64(0), np.int64(0), np.int64(1), np.int64(1), np.int64(0)]
 
-  13. IP : vérif checksum
-      └─ Re-calcul du checksum IPv4 → vérification d'intégrité
-         • Checksum émis : 0x7A36
-         • Checksum recalculé : 0x7A36
-         • ✅ En-tête IP intègre
-         • Somme des mots 16 bits + complément à 1
+      🚀 DÉCODAGE TURBO (TS 36.212 §5.1.3) :
+      • 8 itérations Max-Log-MAP
+      • Taux de code = 1/3
+      • Polynômes RSC :
+        - G0 = 1 (systématique)
+        - G1 = 1 + D² + D³
+        - G2 = 1 + D + D³
+      • Entrelaceur QPP (Quadratic Permutation Polynomial)
+      • Longueur de bloc = 480 bits
 
-  14. TCP : vérif checksum
-      └─ Re-calcul du checksum TCP (avec pseudo-header) → validation
-         • Checksum émis : 0x4013
-         • Checksum recalculé : 0x4013
-         • ✅ Segment TCP intègre
-         • Pseudo-header inclut : IP src/dst, protocole, longueur
+      📊 PERFORMANCES :
+      • SNR d'entrée : 16.7 dB
+      • Gain de codage : 7.0 dB
+      • SNR après décodage : 23.7 dB
+      • BER cible : < 1e-06
 
-  15. JSON parse
-      └─ Extraction de la valeur "result" du JSON → entier final
-         • Payload reçu : {"result":8}
-         • Parsing JSON → objet Python
-         • Extraction de la clé "result" → valeur = 8
-         • 🔄 Vérification : 4+4=8 ✅
-         • Transmission à l’application utilisateur
+      ✅ Transport Block reconstruit : 61 octets = 488 bits
+      • CRC-24A vérification : 0xD6E4E2
+      • CRC-24A recalculé : 0xD6E4E2
+      • ✅ Intégrité du TB vérifiée → ACK HARQ envoyé
+
+   🔄 Niveau 7 (inverse) : MAC/RLC/PDCP déchiffrement
+      • MAC démux LCID=0x01 → RLC PDU (56 octets)
+      • RLC UM SN=0x123 → réassemblage
+      • PDCP déchiffrement AES-128 CTR
+      • COUNT = 0x00000123 (HFN=0, SN=0x123)
+      • Paquet IP restauré (52 octets)
+
+   🔄 Niveau 6 (inverse) : Décapsulation Ethernet
+      • Vérification FCS CRC32 : 0x11313235 ✅
+      • Source MAC: 02:00:00:aa:bb:01
+      • Destination MAC: 02:00:00:cc:dd:fe
+
+   🔄 Niveau 5 (inverse) : Vérification IPv4
+      • Header checksum : 0x7A36 ✅
+      • Source IP: 10.45.0.42
+      • Destination IP: 10.99.0.7
+
+   🔄 Niveau 4 (inverse) : Vérification TCP
+      • Checksum TCP : 0x4013 ✅
+      • Flags: PSH+ACK, Window: 8192
+
+   🔄 Niveau 3 (inverse) : Parsing JSON
+      • Payload reçu : b'{"result":8}'
+      • json.loads() → {"result": 8}
+      • Résultat extrait : 8
 
   ====================================================================
-  ✅ DÉCAPSULATION RÉUSSIE : Le résultat a été extrait avec succès !
+  ✅ DÉCAPSULATION RÉUSSIE
   ====================================================================
+  📊 RÉCAPITULATIF DES OPÉRATIONS :
+     • Down-conversion RF → I/Q (L11)
+     • FFT + suppression CP → symboles (L10)
+     • 16-QAM soft-demapping → LLR → bits (L9)
+     • Déscramble + Turbo decode → TB (L8)
+     • PDCP déchiffre + RLC + MAC → IP (L7)
+     • Ethernet décapage → IP (L6)
+     • IP checksum → TCP (L5)
+     • TCP checksum → payload (L4)
+     • JSON parse → résultat (L3)
+
+  🎯 RÉSULTAT FINAL : 8
+  🔄 Vérification : Le résultat correspond à l'addition du Niveau 1
 
 ========================================================================
   NIVEAU 14 — Glyph "8" rastérisé (bitmap 8×8)
@@ -363,5 +382,6 @@ python3 pile_trace.py pile_values.csv 4+4 --verbose
      → PDCP chiffré → RLC → MAC → TB → Turbo → 16-QAM → OFDM
      → RF → Propagation → Réception → Démodulation → Décapsulation
      → Glyphe → OLED
+  📐 Loi U = R·I vérifiée aux deux extrémités (TX: MOSFET, RX: OLED)
   📐 Loi U = R·I vérifiée aux deux extrémités (TX: MOSFET, RX: OLED)
   ```
