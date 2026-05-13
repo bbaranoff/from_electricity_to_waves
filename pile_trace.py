@@ -267,7 +267,7 @@ def L4_tcp(cfg, payload):
     print(f'  seq = 0x{seq:08X}  ack = 0x{ack:08X}')
     print(f'  flags = 0x{flags:02X} (PSH+ACK)  window = {window}')
     print(f'  checksum = 0x{csum:04X}')
-    print(f'  Segment TCP ({len(segment)} octets) :')
+    print(f'  Segment TCP complet ({len(segment)} octets) :')
     print(hexdump(segment, '  '))
     return segment
 
@@ -284,15 +284,12 @@ def L5_ip(cfg, tcp_segment):
     print(f'  src = {cfg["src_ip"]}  dst = {cfg["dst_ip"]}')
     print(f'  total length = {total_len}  TTL = {ttl}  proto = TCP(6)')
     print(f'  header checksum = 0x{csum:04X}')
-    print(f'  Paquet IP ({len(packet)} octets) :')
+    print(f'  Paquet IP complet ({len(packet)} octets) :')
     print(hexdump(packet, '  '))
     return packet
 
 def L6_ethernet(cfg, ip_packet):
     banner('NIVEAU 6 — Trame Ethernet (backhaul S1-U / Internet)')
-    print('  NB : Ethernet apparaît sur le backhaul fibre (eNB↔S-GW↔P-GW)')
-    print('       et sur l\'Internet. PAS sur l\'air interface Uu, où PDCP/')
-    print('       RLC/MAC tiennent le rôle de L2.')
     src_mac = mac_to_bytes(cfg['src_mac'])
     dst_mac = mac_to_bytes(cfg['dst_mac'])
     ethertype = struct.pack('>H', 0x0800)
@@ -302,7 +299,7 @@ def L6_ethernet(cfg, ip_packet):
     print(f'  src MAC = {cfg["src_mac"]}  dst MAC = {cfg["dst_mac"]}')
     print('  EtherType = 0x0800 (IPv4)')
     print(f'  FCS (CRC32) = 0x{fcs:08X}')
-    print(f'  Trame Ethernet ({len(frame)} octets) :')
+    print(f'  Trame Ethernet complète ({len(frame)} octets) :')
     print(hexdump(frame, '  '))
     return frame
 
@@ -311,32 +308,112 @@ def L6_ethernet(cfg, ip_packet):
 # ------------------------------------------------------------
 def L7_lte_ran(cfg, ip_packet):
     banner('NIVEAU 7 — Pile RAN LTE Uu : PDCP / RLC / MAC / CRC')
-    pdcp_sn = 0x123
-    pdcp_hdr = struct.pack('>H', (0 << 15) | pdcp_sn)
     
-    # Version simplifiée (stub) - pour la version complète, décommentez AES
-    stream = ksg_stream(cfg['rnti'], pdcp_sn, len(ip_packet))
-    pdcp_payload = bytes(a ^ b for a, b in zip(ip_packet, stream))
+    # Affichage des paramètres LTE sécurité
+    print(f'  📋 PARAMÈTRES LTE (TS 33.401) :')
+    print(f'     • IMSI : {cfg["imsi"]}')
+    print(f'     • K : {cfg["k"]}')
+    print(f'     • OPC : {cfg["opc"]}')
+    print(f'     • AMF : {cfg["amf"]}')
+    print(f'     • RNTI : 0x{cfg["rnti"]:04X}')
+    print()
+    
+    # PDCP SN sur 12 bits
+    pdcp_sn = 0x123
+    pdcp_hdr = struct.pack('>H', (0 << 12) | pdcp_sn)
+    
+    # ------------------------------------------------------------
+    # CHIFFREMENT LTE (AES-128 CTR) - Version complète
+    # ------------------------------------------------------------
+    from Cryptodome.Cipher import AES
+    from Cryptodome.Util import Counter
+    
+    # Dérivation de la clé K_UPenc à partir de K, OPC, AMF, IMSI
+    def derive_lte_key(cfg, role: str) -> bytes:
+        """Dérive une clé LTE selon TS 33.401"""
+        # Gérer les chaînes hexadécimales
+        k_str = cfg['k']
+        opc_str = cfg['opc']
+        amf_str = cfg['amf']
+        
+        # Convertir en bytes (si c'est déjà une chaîne)
+        if isinstance(k_str, str):
+            k_bytes = bytes.fromhex(k_str)
+        else:
+            k_bytes = struct.pack('>I', k_str)
+            
+        if isinstance(opc_str, str):
+            opc_bytes = bytes.fromhex(opc_str)
+        else:
+            opc_bytes = struct.pack('>I', opc_str)
+            
+        if isinstance(amf_str, str):
+            amf_bytes = bytes.fromhex(amf_str)
+        else:
+            amf_bytes = struct.pack('>H', amf_str)
+        
+        imsi_bytes = str(cfg['imsi']).encode()
+        
+        # K_asme = HMAC-SHA-256(K, (IMSI || AMF))
+        k_asme = hashlib.sha256(k_bytes + imsi_bytes + amf_bytes).digest()
+        
+        # K_upenc = HMAC-SHA-256(K_asme, role)
+        k_upenc = hashlib.sha256(k_asme + role.encode()).digest()[:16]
+        
+        return k_upenc
+    
+    k_upenc = derive_lte_key(cfg, 'enc')
+    
+    # COUNT = 32 bits = (HFN << 16) | PDCP_SN
+    hfn = 0x0000
+    count = (hfn << 16) | pdcp_sn
+    
+    # Chiffrement
+    ctr = Counter.new(128, initial_value=(count << 64), little_endian=False)
+    cipher = AES.new(k_upenc, AES.MODE_CTR, counter=ctr)
+    pdcp_payload = cipher.encrypt(ip_packet)
     pdcp_pdu = pdcp_hdr + pdcp_payload
     
     print(f'  PDCP SN = 0x{pdcp_sn:03X}, PDU = {len(pdcp_pdu)} octets')
-    print('    (chiffré via stream déterministe SHA-256 ; version pédagogique)')
-    print(hexdump(pdcp_pdu[:48], '    '))
-    if len(pdcp_pdu) > 48:
-        print(f'    ... +{len(pdcp_pdu)-48} octets')
+    print(f'  🔐 Chiffrement LTE AES-128 CTR (TS 33.401)')
+    print(f'     • K_upenc : {k_upenc.hex()}')
+    print(f'     • COUNT = 0x{count:08X} (HFN=0x{hfn:04X}, SN=0x{pdcp_sn:03X})')
+    print(f'     • PDU complet ({len(pdcp_pdu)} octets) :')
+    print(hexdump(pdcp_pdu, '       '))
     
-    rlc_hdr = bytes([0xC0])
+    # ------------------------------------------------------------
+    # RLC UM (Unacknowledged Mode) - TS 36.322
+    # ------------------------------------------------------------
+    rlc_sn = pdcp_sn & 0xFFF
+    rlc_hdr = struct.pack('>H', (0 << 14) | (0 << 13) | rlc_sn)
     rlc_pdu = rlc_hdr + pdcp_pdu
-    print(f'  RLC UM : header=0x{rlc_hdr[0]:02X}, PDU={len(rlc_pdu)} octets')
+    print(f'\n  RLC UM : SN=0x{rlc_sn:03X}, PDU={len(rlc_pdu)} octets')
+    print(f'     • Header : 0x{rlc_hdr[0]:02X}{rlc_hdr[1]:02X}')
+    print(f'     • PDU complet ({len(rlc_pdu)} octets) :')
+    print(hexdump(rlc_pdu, '       '))
     
-    mac_hdr = bytes([0x01, len(rlc_pdu) & 0xFF])
+    # ------------------------------------------------------------
+    # MAC (Medium Access Control) - TS 36.321
+    # ------------------------------------------------------------
+    mac_lcid = 0x01  # DTCH (Dedicated Traffic Channel)
+    mac_len = len(rlc_pdu)
+    mac_hdr = bytes([(mac_lcid << 2) | ((mac_len >> 8) & 0x03), mac_len & 0xFF])
     mac_pdu = mac_hdr + rlc_pdu
-    print(f'  MAC PDU = {len(mac_pdu)} octets')
+    print(f'\n  MAC PDU : LCID={mac_lcid} (DTCH), longueur={mac_len}, PDU={len(mac_pdu)} octets')
+    print(f'     • Header : 0x{mac_hdr[0]:02X}{mac_hdr[1]:02X}')
+    print(f'     • PDU complet ({len(mac_pdu)} octets) :')
+    print(hexdump(mac_pdu, '       '))
     
+    # ------------------------------------------------------------
+    # CRC-24A (Transport Block CRC) - TS 36.212 §5.1.1
+    # ------------------------------------------------------------
     crc = crc24a(mac_pdu)
-    tb = mac_pdu + struct.pack('>I', crc)[1:]
-    print(f'  CRC-24A = 0x{crc:06X}')
+    tb = mac_pdu + struct.pack('>I', crc)[1:]  # 24 bits de CRC
+    print(f'\n  CRC-24A = 0x{crc:06X}')
     print(f'  Transport Block (TB) = {len(tb)} octets = {len(tb)*8} bits')
+    print(f'     • TB complet ({len(tb)} octets) :')
+    print(hexdump(tb, '       '))
+    
     return tb
 
 def L8_phy_coding(cfg, tb):

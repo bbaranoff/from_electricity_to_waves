@@ -5,6 +5,11 @@ mosfet_vth_v,0.4
 mosfet_mu_cox_uA_V2,400e-6
 mosfet_WL,4
 mosfet_cload_F,10e-15
+# === LTE Sécurité (Authentification) ===
+imsi,310150123456789
+k,00112233445566778899AABBCCDDEEFF
+opc,00112233445566778899AABBCCDDEEFF
+amf,8000
 # === Réseau IP / Ethernet ===
 src_ip,10.45.0.42
 dst_ip,10.99.0.7
