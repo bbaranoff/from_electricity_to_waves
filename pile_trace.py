@@ -1383,12 +1383,17 @@ def parse_addition(s: str) -> tuple:
     return int(a), int(b)
 
 
-def parse_override(s: str) -> tuple:
-    """Parse 'key=value' avec même heuristique que load_csv (hex, int, float, str)."""
+def parse_override(s: str, existing_value=None) -> tuple:
+    """Parse 'key=value'. Si existing_value est fourni, préserve son type :
+    str reste str (utile pour les hex strings comme K, OP, RAND qui n'ont
+    pas de préfixe 0x). Sinon heuristique : hex/int/float/str."""
     if '=' not in s:
         raise ValueError(f"Override invalide '{s}' — format attendu : key=value")
     k, v = s.split('=', 1)
     k, v = k.strip(), v.strip()
+    # Si on connaît le type existant et que c'est str, garder str
+    if isinstance(existing_value, str):
+        return k, v
     if v.startswith(('0x', '0X')):
         return k, int(v, 16)
     try:
@@ -1397,7 +1402,7 @@ def parse_override(s: str) -> tuple:
         try:
             return k, float(v)
         except ValueError:
-            return k, v  # string (typiquement hex sans préfixe pour K, OP, etc.)
+            return k, v
 
 
 def main():
@@ -1473,7 +1478,9 @@ def main():
         if args.rx_override:
             print('\n  🔧 Application des overrides RX (avant L13) :')
             for ov_str in args.rx_override:
-                k, v = parse_override(ov_str)
+                # Peek la clé pour récupérer le type existant
+                k_peek = ov_str.split('=', 1)[0].strip()
+                k, v = parse_override(ov_str, existing_value=cfg_rx.get(k_peek))
                 old = cfg_rx.get(k, '<absent>')
                 cfg_rx[k] = v
                 print(f'     cfg_rx["{k}"] : {old!r}  →  {v!r}')
