@@ -1237,7 +1237,7 @@ def L13_decap(cfg: dict, *,
     print(f'  ┃  Payload JSON décodé du flux RX : {payload!r:<29}┃')
     print(f'  ┃  result_rx = {str(result_rx):<10}   (attendu : {expected_result})                  ┃')
     final_ok = (result_rx == expected_result)
-    verdict = '✅ MATCH : le « {expected_result} » a réellement traversé la pile' if final_ok \
+    verdict = f'✅ MATCH : le « {expected_result} » a réellement traversé la pile' if final_ok \
               else f'❌ MISMATCH : {result_rx} ≠ {expected_result}'
     print(f'  ┃  {verdict:<63}┃')
     print('  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛')
