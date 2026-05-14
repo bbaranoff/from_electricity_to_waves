@@ -1237,7 +1237,7 @@ def L13_decap(cfg: dict, *,
     print(f'  ┃  Payload JSON décodé du flux RX : {payload!r:<29}┃')
     print(f'  ┃  result_rx = {str(result_rx):<10}   (attendu : {expected_result})                  ┃')
     final_ok = (result_rx == expected_result)
-    verdict = '✅ MATCH : le « 2 » a réellement traversé la pile' if final_ok \
+    verdict = '✅ MATCH : le « {expected_result} » a réellement traversé la pile' if final_ok \
               else f'❌ MISMATCH : {result_rx} ≠ {expected_result}'
     print(f'  ┃  {verdict:<63}┃')
     print('  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛')
@@ -1266,6 +1266,10 @@ DEFAULT_GLYPHS = {
 
 
 def raster_one_glyph(char: str, font_path: str = None, size: int = 8) -> list:
+    # À 8 px, les fontes TTF rendent illisibles les chiffres : utiliser
+    # DEFAULT_GLYPHS qui est dessiné manuellement pour cette résolution.
+    if font_path is None and char in DEFAULT_GLYPHS:
+        return DEFAULT_GLYPHS[char]
     try:
         if font_path is None:
             font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf'
