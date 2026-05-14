@@ -351,11 +351,25 @@ def qam16_demap_soft(symbols: np.ndarray, noise_var: float = 1.0) -> np.ndarray:
 
 def awgn_channel(signal: np.ndarray, snr_db: float,
                   signal_power: float = None, seed: int = 42) -> tuple:
-    """AWGN sur signal complexe. Retourne (signal_noisy, noise_var)."""
-    if snr_db >= 300:  # SNR ~ infini
+    """AWGN sur signal complexe. Retourne (signal_noisy, noise_var).
+
+    Régimes asymptotiques symétriques :
+      snr_db >= +300 → ∞, retourne signal sans bruit
+      snr_db <= -300 → -∞, retourne bruit pur (signal noyé)
+    """
+    if snr_db >= 300:  # SNR ~ +∞ : signal pur
         return signal.copy(), 0.0
     if signal_power is None:
         signal_power = np.mean(np.abs(signal) ** 2)
+    if snr_db <= -300:  # SNR ~ -∞ : signal mort, bruit pur
+        rng = np.random.default_rng(seed)
+        huge = signal_power * 1e30
+        if np.iscomplexobj(signal):
+            n = (rng.standard_normal(len(signal)) +
+                 1j * rng.standard_normal(len(signal))) * np.sqrt(huge / 2)
+        else:
+            n = rng.standard_normal(len(signal)) * np.sqrt(huge)
+        return n, huge   # le signal n'est PAS dans la sortie
     snr_lin = 10 ** (snr_db / 10)
     noise_var = signal_power / snr_lin
     rng = np.random.default_rng(seed)
@@ -1071,16 +1085,24 @@ def L13_decap(cfg: dict, *,
     L13 re-dérive K_UPenc indépendamment et lit la PDCP SN depuis le header
     pour reconstruire COUNT. Aucun bypass possible.
     """
-    banner(f'NIVEAU 13 — Décap RX indépendante (SNR={snr_db if snr_db<300 else "∞"} dB, '
+    if snr_db >= 300:
+        _snr_disp = "+∞"
+    elif snr_db <= -300:
+        _snr_disp = "−∞"
+    else:
+        _snr_disp = f"{snr_db:.1f}"
+    banner(f'NIVEAU 13 — Décap RX indépendante (SNR={_snr_disp} dB, '
            f'demap={"soft" if use_soft_demap else "hard"})')
     results = {}
 
     # --- Canal AWGN ---------------------------------------------------------
     x_rx_noisy, noise_var = awgn_channel(x_rx, snr_db)
-    if snr_db < 300:
-        print(f'  Canal AWGN : σ² = {noise_var:.6f}')
+    if snr_db >= 300:
+        print('  Canal AWGN désactivé (SNR ≥ +300 dB, signal pur)')
+    elif snr_db <= -300:
+        print('  Canal AWGN saturé (SNR ≤ −300 dB, signal mort dans le bruit)')
     else:
-        print('  Canal AWGN désactivé (SNR ≥ 300 dB)')
+        print(f'  Canal AWGN : σ² = {noise_var:.6f}')
 
     # --- L10 inverse : détection PSS puis multi-symboles OFDM data ---------
     N_FFT = cfg['fft_size']
