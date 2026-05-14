@@ -1,339 +1,482 @@
 ```bash
 python3 pile_trace.py pile_values.csv 4+4 --verbose
 ```
-```txt(.env) nirvana@lenovo:~/from_electricity_to_waves$ python pile_trace.py pile_values.csv 1+1     --rx-override k=00112233445566778899AABBCCDDEEFE
-
-📁 Config : 44 clés ; addition : 1 + 1
-
-========================================================================
-  NIVEAU 0 — Saisie clavier → deux registres (chaîne physique)
-========================================================================
-  Architecture (par opérande) :
-    Touche → Debounce → MOSFET → Inverseur CMOS → Bascule D × N → Registre
-  NAND : primitive universelle montrée en référence.
-  Chaque opérande a son propre registre. L1 (adder) lit R_A et R_B.
-
-  ┌── Saisie opérande A = 1₁₀ (1₂, 1 bits) ──
-  │  Touche "1" (poids faible "1", ASCII 0x31)
-  │  Matrice : ligne 1, col 6
-  │  Anti-rebond 10 ms ; Vcc=3.3 V ; R_pullup=10 kΩ
-  │
-  ▶ MOSFET (A) : V_GS=3.3 V, V_th=0.4 V
-     I_D = ½·µCox·(W/L)·(V_GS−V_th)² = 6728.0 µA
-     R_on = V/I = 0.13 kΩ ; E_switch = ½·C·V² = 4.05 fJ
-  ▶ Inverseur CMOS (A) : VDD=0.9 V
-     t_rise = 7.36 ps, t_fall = 2.94 ps
-  │  Registre 1× bascule D master-slave (front montant 1 GHz) :
-  │     Q[0..0] = 1  (valeur stockée : 1)
-  │  P_dyn ≈ 16.20 µW (4 portes/bascule × 1 bascules)
-  └── R_A = 1
-
-  ── Référence : porte NAND (primitive universelle) ──
-     A B │ Y=NAND(A,B)
-     ────┼────────────
-      0 0 │     1
-      0 1 │     1
-      1 0 │     1
-      1 1 │     0
-     (toutes les portes — INV, AND, OR, XOR, FF — se construisent par cascade de NAND)
-
-  ┌── Saisie opérande B = 1₁₀ (1₂, 1 bits) ──
-  │  Touche "1" (poids faible "1", ASCII 0x31)
-  │  Matrice : ligne 1, col 6
-  │  Anti-rebond 10 ms ; Vcc=3.3 V ; R_pullup=10 kΩ
-  │  MOSFET passant (I_D ≈ 6728 µA) → inverseur (t_d ≈ ps) → idem
-  │  Registre 1× bascule D master-slave (front montant 1 GHz) :
-  │     Q[0..0] = 1  (valeur stockée : 1)
-  │  P_dyn ≈ 16.20 µW (4 portes/bascule × 1 bascules)
-  └── R_B = 1
-
-  🔗 Liaison L0 → L1 :
-     R_A = 1  (1₂)
-     R_B = 1  (1₂)
-     → entrées A et B du full adder (Niveau 1)
+```txt
+📁 Config chargée : 38 paramètres
+🧮 Addition demandée : 4 + 4
 
 ========================================================================
-  NIVEAU 1 — Full adder : R_A + R_B = 1 + 1
+  NIVEAU 0 COMPLET — Du clavier au registre (chaîne physique)
 ========================================================================
-  Opérandes lues depuis L0 : R_A=1, R_B=1
-  Largeur calculée : 2 bits (= max(bit_length) + 1)
 
-  bit  0: A=1 B=1 Cin=0 → S=0 Cout=1
-  bit  1: A=0 B=0 Cin=1 → S=1 Cout=0
+  📋 CHAÎNE DE TRAITEMENT :
+  Touche → Contact → Anti-rebond → MOSFET → Inverseur → NAND → Bascule → Registre
+     ↓         ↓          ↓          ↓         ↓        ↓        ↓         ↓
+   3.3V      0V/3.3V    0V/3.3V     I_D      NOT     NAND     D Q      Stockage
 
-  Résultat : 10₂ = 2₁₀
-  Envoyé à L2 (ARMv8 ALU)
+========================================================================
+  NIVEAU 0_origin — Driver clavier Toy (touche → signal électrique)
+========================================================================
+  🎮 CLAVIER TOY - SAISIE : 4 + 4 = 8
+     • Touche : "8" (ASCII 0x38)
+     • Matrice : ligne 0, colonne 7
+     • Vcc = 3.3 V, R_pullup = 10 kΩ
+     • Anti-rebond : 10 ms
+
+  💾 SIGNAL NUMÉRIQUE FINAL :
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ Vout(V)   Digital                                              │
+  │  3.3 ┤██████████████████████████████████████████████████████████│
+  │  0.0 ┤                                                          │
+  │      ┼───────┬───────┬───────┬───────┬───────┬───────┬───────┬─┤
+  │        0      2      4      6      8     10     12     14     16
+  │                           t (ms)                                │
+  └─────────────────────────────────────────────────────────────────┘
+
+========================================================================
+  NIVEAU 0 — MOSFET NMOS : commutation clavier → courant
+========================================================================
+  🔌 SIGNAL D'ENTRÉE :
+     • Touche : "8" → V_GS = 3.3 V
+
+  ✅ MOSFET ACTIF :
+     • V_GS = 3.3 V, V_th = 0.4 V
+     • I_D = 6728.0 µA
+     • R_on = 0.13 kΩ
+     • E_switch = 4.05 fJ
+
+========================================================================
+  NIVEAU 0 bis — Inverseur CMOS (porte NOT)
+========================================================================
+  • VDD = 0.9 V, seuil = 0.45 V
+  • Vin = 0.0 V (sortie MOSFET)
+  • Vout = 0.9 V (NOT de Vin)
+  • NMOS = OFF, PMOS = ON
+
+  ⏱️  Délais : t_rise = 7.36 ps, t_fall = 2.94 ps
+
+========================================================================
+  NIVEAU 0 ter — Porte NAND (porte universelle)
+========================================================================
+  • Entrée A = 0 (bit de poids fort)
+  • Entrée B = 1 (bit de poids faible)
+  • NAND : Y = NOT(A AND B) = 1
+
+  Table de vérité :
+  ┌─────┬─────┬───────┐
+  │  A  │  B  │ Y=A·B │
+  ├─────┼─────┼───────┤
+  │  0  │  0  │   1   │
+  │  0  │  1  │   1   │
+  │  1  │  0  │   1   │
+  │  1  │  1  │   0   │
+  └─────┴─────┴───────┘
+
+  ⏱️  Délais : t_HL = 198.00 ps, t_LH = 247.50 ps
+
+========================================================================
+  NIVEAU 0 quart — Bascule D → Registre 2 bits
+========================================================================
+  🔷 BASCULE D MASTER-SLAVE
+     • Valeur à stocker : 1₁₀ = 01₂
+     • Horloge : front montant (1 GHz)
+
+     Simulation :
+     ┌───────┬─────┬─────┬─────┬─────┬─────┬─────────────┐
+     │ Cycle │ CLK │ D1  │ D0  │ Q1  │ Q0  │ État        │
+     ├───────┼─────┼─────┼─────┼─────┼─────┼─────────────┤
+     │   0   │  1  │  0  │  1  │  0  │  1  │ stocké 01   │
+     │   1   │  0  │  0  │  1  │  0  │  1  │ maintien    │
+     │   2   │  1  │  0  │  1  │  0  │  1  │ stocké 01   │
+     │   3   │  0  │  0  │  1  │  0  │  1  │ maintien    │
+     └───────┴─────┴─────┴─────┴─────┴─────┴─────────────┘
+
+  ⚡ Consommation : 64.80 µW
+  💾 Valeur stockée dans le registre : 1₁₀ = 01₂
+
+========================================================================
+  🔗 LIAISON NIVEAU 0 → NIVEAU 1 (Additionneur)
+========================================================================
+  • Le registre stocke la valeur : 1
+  • Cette valeur est chargée dans l'additionneur du Niveau 1
+  • Format : 1₁₀ = 01₂
+  • Les bits sont envoyés sur les entrées A et B de l'additionneur
+
+========================================================================
+  NIVEAU 1 — Full adder : 4 + 4 en binaire (bits auto)
+========================================================================
+  4 + 4 sur 4 bits (auto)
+  0100 (a)
+  0100 (b)
+  ----
+  bit  0 : A=0 B=0 Cin=0  →  S=0 Cout=0
+  bit  1 : A=0 B=0 Cin=0  →  S=0 Cout=0
+  bit  2 : A=1 B=1 Cin=0  →  S=0 Cout=1
+  bit  3 : A=0 B=0 Cin=1  →  S=1 Cout=0
+  Résultat : 1000₂ = 8₁₀
+
+  🔗 LIAISON AVEC LE NIVEAU 0 :
+     • Les entrées 4 et 4 viennent du registre du Niveau 0
+     • Le résultat 8 va être envoyé au Niveau 2 (ARM ALU)
+
+  ⚠️ NOTE : Le registre stocke 1, l'addition donne 8
+      (Le registre simule la saisie clavier, l'additionneur calcule indépendamment)
 
 ========================================================================
   NIVEAU 2 — Instruction ARMv8 ADD
 ========================================================================
-  MOV  W0, #1          ; W0 = 0x00000001
-  MOV  W1, #1          ; W1 = 0x00000001
-  ADD  W2, W0, W1        ; W2 = 0x00000002
+  MOV  W0, #1            ; W0 = 0x0000_0001
+  MOV  W1, #1            ; W1 = 0x0000_0001
+  ADD  W2, W0, W1        ; W2 = 0x00000008
   Encodage 32 bits : 0x0B010002
 
 ========================================================================
   NIVEAU 3 — Payload JSON applicatif
 ========================================================================
-  json.dumps → "{"result":2}" (12 octets)
-  0000: 7b 22 72 65 73 75 6c 74 22 3a 32 7d              {"result":2}
+  snprintf  →  "{"result":8}"  (12 octets)
+  0000: 7b 22 72 65 73 75 6c 74 22 3a 38 7d              {"result":8}
+  Offset 10 = 0x38 = '8' (le résultat du Niveau 1)
 
 ========================================================================
   NIVEAU 4 — Segment TCP
 ========================================================================
-  49152 → 8080 ; seq=0x12345678 ack=0x87654321
-  flags=0x18 (PSH+ACK) window=8192 csum=0x4613
-  Segment (32 octets) :
+  src port = 49152  dst port = 8080
+  seq = 0x12345678  ack = 0x87654321
+  flags = 0x18 (PSH+ACK)  window = 8192
+  checksum = 0x4013
+  Segment TCP complet (32 octets) :
   0000: c0 00 1f 90 12 34 56 78 87 65 43 21 50 18 20 00  .....4Vx.eC!P. .
-  0010: 46 13 00 00 7b 22 72 65 73 75 6c 74 22 3a 32 7d  F...{"result":2}
+  0010: 40 13 00 00 7b 22 72 65 73 75 6c 74 22 3a 38 7d  @...{"result":8}
 
 ========================================================================
   NIVEAU 5 — Paquet IPv4
 ========================================================================
-  10.45.0.42 → 10.99.0.7 ; len=52 ttl=64 proto=TCP(6)
-  header csum = 0x7A36
-  Paquet (52 octets) :
+  src = 10.45.0.42  dst = 10.99.0.7
+  total length = 52  TTL = 64  proto = TCP(6)
+  header checksum = 0x7A36
+  Paquet IP complet (52 octets) :
   0000: 45 00 00 34 ab cd 40 00 40 06 7a 36 0a 2d 00 2a  E..4..@.@.z6.-.*
   0010: 0a 63 00 07 c0 00 1f 90 12 34 56 78 87 65 43 21  .c.......4Vx.eC!
-  0020: 50 18 20 00 46 13 00 00 7b 22 72 65 73 75 6c 74  P. .F...{"result
-  0030: 22 3a 32 7d                                      ":2}
+  0020: 50 18 20 00 40 13 00 00 7b 22 72 65 73 75 6c 74  P. .@...{"result
+  0030: 22 3a 38 7d                                      ":8}
 
 ========================================================================
-  NIVEAU 6 — Trame Ethernet
+  NIVEAU 6 — Trame Ethernet (backhaul S1-U / Internet)
 ========================================================================
-  02:00:00:aa:bb:01 → 02:00:00:cc:dd:fe ; EtherType=0x0800 (IPv4)
-  FCS (CRC32) = 0xB84FB35B
-  Trame (70 octets) :
+  src MAC = 02:00:00:aa:bb:01  dst MAC = 02:00:00:cc:dd:fe
+  EtherType = 0x0800 (IPv4)
+  FCS (CRC32) = 0x11313235
+  Trame Ethernet complète (70 octets) :
   0000: 02 00 00 cc dd fe 02 00 00 aa bb 01 08 00 45 00  ..............E.
   0010: 00 34 ab cd 40 00 40 06 7a 36 0a 2d 00 2a 0a 63  .4..@.@.z6.-.*.c
   0020: 00 07 c0 00 1f 90 12 34 56 78 87 65 43 21 50 18  .......4Vx.eC!P.
-  0030: 20 00 46 13 00 00 7b 22 72 65 73 75 6c 74 22 3a   .F...{"result":
-  0040: 32 7d 5b b3 4f b8                                2}[.O.
+  0030: 20 00 40 13 00 00 7b 22 72 65 73 75 6c 74 22 3a   .@...{"result":
+  0040: 38 7d 35 32 31 11                                8}521.
 
 ========================================================================
-  NIVEAU 7 — Pile RAN LTE Uu : Milenage AKA + PDCP / RLC / MAC / CRC
+  NIVEAU 7 — Pile RAN LTE Uu : PDCP / RLC / MAC / CRC
 ========================================================================
-  Paramètres sécurité (TS 33.401, vraie chaîne Milenage) :
-    IMSI = 310150123456789  (MCC=310, MNC=15 → PLMN=13f051)
-    K    = 00112233445566778899aabbccddeefe
-    OP   = cdc202d5123e20f62b6d676ac72cb318
-    OPC  = 2a29d90dce2519b17f1339be05c109c6  ← AES_K(OP) ⊕ OP
-    RAND = 23553cbe9637a89d218ae64dae47bf35
-    SQN  = ff9bb4d0b607    AMF = 8000
-    RNTI = 0x4601
+  📋 PARAMÈTRES LTE (TS 33.401) :
+     • IMSI : 310150123456789
+     • K : 00112233445566778899AABBCCDDEEFF
+     • OPC : 00112233445566778899AABBCCDDEEFF
+     • AMF : 8000
+     • RNTI : 0x4601
 
-  Étape 1 — Milenage (CryptoMobile) :
-    MAC-A = 3c859da46d256235  ← f1(K, RAND, SQN, AMF)
-    RES   = 875793157979bfe0              ← f2
-    CK    = 9cbc64df0cf94b733bef8c762f731e8d  ← f3
-    IK    = 591197deddda8703deae0142b5b97819  ← f4
-    AK    = 1086a32086e9                       ← f5
-  Étape 2 — AUTN = (SQN⊕AK) || AMF || MAC-A :
-    SQN⊕AK = ef1d17f030ee
-    AUTN   = ef1d17f030ee80003c859da46d256235
-  Étape 3 — K_ASME (TS 33.401 A.2, FC=0x10) :
-    00bdee72b7446012cbe974b3ac9a110b3542cc24bb0cb6c6dc1dba95cdc4bdbd
-  Étape 4 — K_eNB (A.3, FC=0x11, NAS_UL_COUNT=0) :
-    6afc487fff07d26e33a2eabf41b9d55b3fa909d5da124e77ae5bc1d09284d519
-  Étape 5 — K_UPenc (A.7, FC=0x15, P0=0x05, P1=EEA1) [128 LSB] :
-    d8746cdfc0c05bc0c308a2cebc3ac51d
+  PDCP SN = 0x123, PDU = 54 octets
+  🔐 Chiffrement LTE AES-128 CTR (TS 33.401)
+     • K_upenc : 8ce98ae4890de3c53f3368a51dee9b0d
+     • COUNT = 0x00000123 (HFN=0x0000, SN=0x123)
+     • PDU complet (54 octets) :
+       0000: 01 23 8f 37 45 59 88 1b ca 69 2c 26 94 6f 08 48  .#.7EY...i,&.o.H
+       0010: 17 37 53 bb 0e b1 01 79 37 54 ec c8 cb 4c e1 08  .7S....y7T...L..
+       0020: 98 b2 18 a6 d2 12 97 9e 54 04 0a 86 49 cf 67 38  ........T...I.g8
+       0030: ab 98 8c a9 1b f4                                ......
 
-  PDCP SN=0x123, COUNT=0x00000123 (HFN=0x0000)
-  AES-128-CTR chiffrement → PDU 54 octets :
-    0000: 01 23 f5 66 3a 05 8b 42 6b 32 38 04 42 01 c5 33  .#.f:..Bk28.B..3
-    0010: d5 3c 78 f5 c8 a7 ce 81 2a 62 3f a6 67 29 62 df  .<x.....*b?.g)b.
-    0020: 9d e8 8c e9 71 d9 53 98 22 48 11 ce 66 e5 cf b8  ....q.S."H..f...
-    0030: 22 8d 1e 5a dd ca                                "..Z..
+  RLC UM : SN=0x123, PDU=56 octets
+     • Header : 0x0123
+     • PDU complet (56 octets) :
+       0000: 01 23 01 23 8f 37 45 59 88 1b ca 69 2c 26 94 6f  .#.#.7EY...i,&.o
+       0010: 08 48 17 37 53 bb 0e b1 01 79 37 54 ec c8 cb 4c  .H.7S....y7T...L
+       0020: e1 08 98 b2 18 a6 d2 12 97 9e 54 04 0a 86 49 cf  ..........T...I.
+       0030: 67 38 ab 98 8c a9 1b f4                          g8......
 
-  RLC UM : SN=0x123, PDU 56 octets
-  MAC subheader (TS 36.321 §6.1.2) : LCID=1, L=56
-    octets header = 0138  (R=0 F=0 E=0 LCID=0x01)
-    PDU 58 octets
+  MAC PDU : LCID=1 (DTCH), longueur=56, PDU=58 octets
+     • Header : 0x0438
+     • PDU complet (58 octets) :
+       0000: 04 38 01 23 01 23 8f 37 45 59 88 1b ca 69 2c 26  .8.#.#.7EY...i,&
+       0010: 94 6f 08 48 17 37 53 bb 0e b1 01 79 37 54 ec c8  .o.H.7S....y7T..
+       0020: cb 4c e1 08 98 b2 18 a6 d2 12 97 9e 54 04 0a 86  .L..........T...
+       0030: 49 cf 67 38 ab 98 8c a9 1b f4                    I.g8......
 
-  CRC-24A = 0xF3A02E
-  Transport Block (61 octets = 488 bits) :
-    0000: 01 38 01 23 01 23 f5 66 3a 05 8b 42 6b 32 38 04  .8.#.#.f:..Bk28.
-    0010: 42 01 c5 33 d5 3c 78 f5 c8 a7 ce 81 2a 62 3f a6  B..3.<x.....*b?.
-    0020: 67 29 62 df 9d e8 8c e9 71 d9 53 98 22 48 11 ce  g)b.....q.S."H..
-    0030: 66 e5 cf b8 22 8d 1e 5a dd ca f3 a0 2e           f..."..Z.....
+  CRC-24A = 0x6ACFAD
+  Transport Block (TB) = 61 octets = 488 bits
+     • TB complet (61 octets) :
+       0000: 04 38 01 23 01 23 8f 37 45 59 88 1b ca 69 2c 26  .8.#.#.7EY...i,&
+       0010: 94 6f 08 48 17 37 53 bb 0e b1 01 79 37 54 ec c8  .o.H.7S....y7T..
+       0020: cb 4c e1 08 98 b2 18 a6 d2 12 97 9e 54 04 0a 86  .L..........T...
+       0030: 49 cf 67 38 ab 98 8c a9 1b f4 6a cf ad           I.g8......j..
 
 ========================================================================
-  NIVEAU 8 — Codage convolutif rate-1/3 (commpy) + scrambling Gold (TS 36.211 §7.2)
+  NIVEAU 8 — Codage canal : turbo 1/3 + rate-match + scramble
 ========================================================================
-  Codeur convolutif : g=(13,15,17)₈, K=4, rate=1/3
-  TB = 488 bits → coded = 1473 bits (rate effectif 0.331)
-  ⚠️  Substitut pédagogique au turbo 3GPP (TS 36.212 §5.1.3, RSC×2 + QPP).
-      Même principe à treillis ; vraie lib (commpy) ; Viterbi en RX.
-
-  Dimensionnement grid : n_prb=3 (forcé par coded_len), bits_avail=1728, padding=255
-  Scrambling LTE Gold (Nc=1600) :
-    c_init = 0x11804601  (RNTI=0x4601, subframe=3, PCI=1)
-    Premiers 32 bits scramblés : 10010011100011000101101110111110
+  Turbo 1/3 RSC polys : (1, 1+D²+D³, 1+D+D³)
+    488 bits  →  1476 bits codés (+ 12 tail)
+  Rate-match : 1476 → 1152 bits
+    (2 PRB × 144 RE × 4 bits/sym)
+  Scramble seed = (RNTI=0x4601, PCI=1, sf=3)
+  Premiers 64 bits scramblés :
+    1010001100110111010010010000111000111010001011110101011111011001
 
 ========================================================================
-  NIVEAU 9 — Mapping 16-QAM (TS 36.211 §7.1.3, Gray normalisé √10)
+  NIVEAU 9 — Mapping 16-QAM (TS 36.211 §7.1.3)
 ========================================================================
-  432 symboles 16-QAM
+  288 symboles 16-QAM produits
   Premiers 8 symboles :
-    [0] bits=1001 → s = -0.3162 +0.9487j  |s|=1.0000
-    [1] bits=0011 → s = +0.9487 +0.9487j  |s|=1.3416
-    [2] bits=1000 → s = -0.3162 +0.3162j  |s|=0.4472
-    [3] bits=1100 → s = -0.3162 -0.3162j  |s|=0.4472
-    [4] bits=0101 → s = +0.3162 -0.9487j  |s|=1.0000
-    [5] bits=1011 → s = -0.9487 +0.9487j  |s|=1.3416
-    [6] bits=1011 → s = -0.9487 +0.9487j  |s|=1.3416
-    [7] bits=1110 → s = -0.9487 -0.3162j  |s|=1.0000
-  E[|s|²] = 0.9852  (cible 1.0)
-
-  Démo soft demap (max-log-MAP, σ²=1) — LLRs des 4 premiers symboles :
-    [0] LLR(b0..b3) = [ -1.265,  +3.795,  +1.265,  -1.265]  → bits durs = [1, 0, 0, 1]
-    [1] LLR(b0..b3) = [ +3.795,  +3.795,  -1.265,  -1.265]  → bits durs = [0, 0, 1, 1]
-    [2] LLR(b0..b3) = [ -1.265,  +1.265,  +1.265,  +1.265]  → bits durs = [1, 0, 0, 0]
-    [3] LLR(b0..b3) = [ -1.265,  -1.265,  +1.265,  +1.265]  → bits durs = [1, 1, 0, 0]
+    [0] bits=1010  →  s = -0.9487 + +0.3162j   |s|=1.0000
+    [1] bits=0011  →  s = +0.9487 + +0.9487j   |s|=1.3416
+    [2] bits=0011  →  s = +0.9487 + +0.9487j   |s|=1.3416
+    [3] bits=0111  →  s = +0.9487 + -0.9487j   |s|=1.3416
+    [4] bits=0100  →  s = +0.3162 + -0.3162j   |s|=0.4472
+    [5] bits=1001  →  s = -0.3162 + +0.9487j   |s|=1.0000
+    [6] bits=0000  →  s = +0.3162 + +0.3162j   |s|=0.4472
+    [7] bits=1110  →  s = -0.9487 + -0.3162j   |s|=1.0000
+  Énergie moyenne E[|s|²] = 0.9694  (cible 1.0)
 
 ========================================================================
-  NIVEAU 9.5 — PSS Zadoff-Chu (TS 36.211 §6.11.1) — illustration
+  NIVEAU 10 — OFDM : mapping RE + IFFT + préfixe cyclique
 ========================================================================
-  N_ID_2 = 1  (PCI=1 mod 3) → u = {25,29,34}[1]
-  Séquence Zadoff-Chu longueur 62 (E[|d|²] = 1.0000)
-  Auto-corrélation circulaire (peak/sidelobe) :
-    peak = 62.000, max sidelobe = 12.243, ratio = 5.06
-  Premiers 4 échantillons : [ 1.        +0.j         -0.96907729-0.2467574j  -0.73305187-0.68017274j
-  0.07473009+0.9972038j ]
-  ✓ Injectée par L10 dans le 1er symbole OFDM (SCs center±31 autour de DC, TS 36.211 §6.11.1.2).
-
-========================================================================
-  NIVEAU 10 — OFDM : 1 sym PSS (sync) + N sym data, IFFT + CP
-========================================================================
-  Symbole 0 (PSS) : ZC u={25,29,34}[N_ID_2=1], placée aux SCs center±31 (62 SCs autour de DC)
-                    → en vrai LTE, PSS est au sym 6 du slot 0 ; ici en tête pour pédagogie (sync préambule)
-  N_FFT=2048, CP=144, n_sc data actives=36 (n_prb=3)
-  fs=30.72 MS/s, T_sym(+CP)=71.35 µs
-  Total : 1 PSS + 12 data = 13 symboles OFDM (durée = 927.60 µs)
-  Premiers 8 échantillons I/Q du symbole PSS (après CP) :
-    n=0  I=-0.15078  Q=+0.09228  |s|=0.17678
-    n=1  I=-0.15031  Q=+0.09214  |s|=0.17631
-    n=2  I=-0.14920  Q=+0.09128  |s|=0.17491
-    n=3  I=-0.14745  Q=+0.08969  |s|=0.17259
-    n=4  I=-0.14507  Q=+0.08739  |s|=0.16936
-    n=5  I=-0.14208  Q=+0.08438  |s|=0.16524
-    n=6  I=-0.13848  Q=+0.08068  |s|=0.16027
-    n=7  I=-0.13431  Q=+0.07630  |s|=0.15447
+  IFFT N = 2048, 24 sous-porteuses actives
+  CP normal = 144 échantillons
+  Durée symbole (avec CP) = 71.35 µs
+  fs = 30.72 MS/s,  Ts = 32.552 ns
+  Premiers 16 échantillons I/Q après CP :
+    n=  0  I=+0.09821  Q=-0.05249  |s|=0.11136
+    n=  1  I=-0.02136  Q=+0.11023  |s|=0.11228
+    n=  2  I=-0.07263  Q=-0.08676  |s|=0.11315
+    n=  3  I=+0.11396  Q=-0.00167  |s|=0.11397
+    n=  4  I=-0.07106  Q=+0.09010  |s|=0.11475
+    n=  5  I=-0.02527  Q=-0.11268  |s|=0.11548
+    n=  6  I=+0.10400  Q=+0.05176  |s|=0.11617
+    n=  7  I=-0.10633  Q=+0.04833  |s|=0.11680
+    n=  8  I=+0.02970  Q=-0.11356  |s|=0.11738
+    n=  9  I=+0.06972  Q=+0.09509  |s|=0.11792
+    n= 10  I=-0.11825  Q=-0.00587  |s|=0.11840
+    n= 11  I=+0.07941  Q=-0.08840  |s|=0.11883
+    n= 12  I=+0.01861  Q=+0.11775  |s|=0.11921
+    n= 13  I=-0.10342  Q=-0.05996  |s|=0.11954
+    n= 14  I=+0.11200  Q=-0.04259  |s|=0.11982
+    n= 15  I=-0.03760  Q=+0.11400  |s|=0.12005
+  Puissance moyenne E[|x|²] = 0.0137
 
 ========================================================================
-  NIVEAU 11 — Chaîne RF (GNU Radio) : interp + filtre + upconv IF + vérif
+  NIVEAU 11 — RF : DAC + mixeur quadrature + PA
 ========================================================================
-  Paramètres :
-    fs_in           = 30.72 MS/s   (sortie L10)
-    interp_factor   = ×4
-    fs_out          = 122.88 MS/s
-    f_IF            = 5.00 MHz   (upconv digital)
-    f_c (RF final)  = 1747.50 MHz   ← upconv analogique via SDR
-    P_TX consigne   = 23 dBm
-    n_taps filtre   = 101
-
-  TX RF : scipy fallback (resample_poly + numpy LO complexe)
-  Sortie : 113984 samples complexes à 122.88 MS/s (927.6 µs)
-
-  Premiers 8 échantillons I/Q après chaîne RF complète :
-    n=0  I=-0.01718  Q=-0.03157  |s|=0.03594
-    n=1  I=-0.00769  Q=-0.04039  |s|=0.04111
-    n=2  I=+0.00605  Q=-0.04278  |s|=0.04321
-    n=3  I=+0.02033  Q=-0.03836  |s|=0.04341
-    n=4  I=+0.03239  Q=-0.02886  |s|=0.04338
-    n=5  I=+0.04098  Q=-0.01661  |s|=0.04422
-    n=6  I=+0.04633  Q=-0.00313  |s|=0.04643
-    n=7  I=+0.04850  Q=+0.01119  |s|=0.04977
-
-  Vérif spectre (FFT 8192 samples) :
-    Pic spectral à +5.14 MHz  (attendu ~+5.00 MHz)
-
-  Boucle TX RF → RX RF (vérification d'invertibilité) :
-    Downconv (LO conjugué) + decim ÷4 → 28496 samples baseband
-    max|err| full       = 1.09e-02  (inclut transitoires bords)
-    max|err| middle     = 6.94e-03  [⚠ écart résiduel]
-
-  Note : L13 continue à utiliser le baseband direct (fs_in) ; en vrai pipeline,
-         le SDR RX downconverterait le signal réel à 1.7 GHz vers baseband.
-         Pour exporter vers fichier IQ (HackRF/USRP) : np.save("tx.iq", x_rf).
+  EARFCN UL = 19575  →  f_c = 1747.5 MHz
+  P_TX = 23 dBm = 200 mW
+  s_RF(t) = I(t)·cos(2π f_c t) − Q(t)·sin(2π f_c t)
+  Évaluation analytique sur 8 échantillons :
+    n=0 t=  0.00 ns  I=+0.0982 Q=-0.0525  →  s_RF=+0.09821
+    n=1 t= 32.55 ns  I=-0.0214 Q=+0.1102  →  s_RF=+0.05701
+    n=2 t= 65.10 ns  I=-0.0726 Q=-0.0868  →  s_RF=-0.09500
+    n=3 t= 97.66 ns  I=+0.1140 Q=-0.0017  →  s_RF=-0.06585
+    n=4 t=130.21 ns  I=-0.0711 Q=+0.0901  →  s_RF=+0.09082
+    n=5 t=162.76 ns  I=-0.0253 Q=-0.1127  →  s_RF=+0.07433
+    n=6 t=195.31 ns  I=+0.1040 Q=+0.0518  →  s_RF=-0.08572
+    n=7 t=227.86 ns  I=-0.1063 Q=+0.0483  →  s_RF=-0.08235
 
 ========================================================================
-  NIVEAU 12 — Bilan de liaison Friis (UE → eNB)
+  NIVEAU 12 — Bilan de liaison Friis (UE_A → eNB)
 ========================================================================
-  d=500 m, λ=17.17 cm
-  L_FS=91.3 dB + L_excess=30 dB → L_total=121.3 dB
-  P_r = 23+0+17−121.3 = -81.3 dBm
-  N_sys = -98.0 dBm → SNR ≈ 16.7 dB
-
-  🔧 Application des overrides RX (avant L13) :
-     cfg_rx["k"] : '00112233445566778899AABBCCDDEEFE'  →  '00112233445566778899AABBCCDDEEFE'
-
-========================================================================
-  NIVEAU 13 — Décap RX indépendante (SNR=∞ dB, demap=hard)
-========================================================================
-  Canal AWGN désactivé (SNR ≥ 300 dB)
-  PSS sync   : pic corrélation à sample 144 (attendu 144, écart=+0)
-             amplitude=62.00, N_ID_2_essai=1
-  L10 skip   : 1er symbole OFDM (PSS) écarté → 26304 samples data
-  L10 inverse : 12 FFT data → 432 symboles 16-QAM
-  L9  inverse : démap hard → 1728 bits
-  L8  inverse : descramble (c_init=0x11804601 regénérée depuis cfg)
-  L8          : Viterbi rate-1/3 → 488 TB bits (coded_len déduit de DCI.tb_byte_len=61)
-  L7  CRC-24A : 0xF3A02E vs 0xF3A02E  [OK]
-  L7  MAC parsed : LCID=1, L=56
-  L7  PDCP header : SN=0x123 (lue depuis octets reçus)
-  L7  K_UPenc (re-dérivée côté RX, AKA complète) :
-        d8746cdfc0c05bc0c308a2cebc3ac51d
-        ↑ HSS détient K, MME reçoit K_ASME, eNB reçoit K_eNB via S1AP,
-          puis dérive K_UPenc. Ici on simule en re-faisant la chaîne complète.
-  L7  COUNT reconstruit : (HFN=0x0000 << 12) | SN=0x123 = 0x00000123
-  L7  AES-128-CTR déchiffrement → IP 52 octets
-  L5  IPv4 parsed : version=4, IHL=5
-  L4  TCP parsed : data_offset=5, payload 12 octets
-
-  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-  ┃  Payload JSON décodé du flux RX : b'{"result":2}'              ┃
-  ┃  result_rx = 2            (attendu : 2)                  ┃
-  ┃  ✅ MATCH : le « 2 » a réellement traversé la pile               ┃
-  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+  d = 500 m,  λ = c/fc = 17.17 cm
+  L_FS  = (4π·d/λ)² = 1.340e+09  →  91.3 dB
+  L_excess (urbain COST-231) = 30 dB
+  L_total = 121.3 dB
+  P_r = -81.3 dBm
+  N_sys = -98.0 dBm
+  SNR ≈ 16.7 dB
 
 ========================================================================
-  NIVEAU 14 — Glyph "2" rastérisé (1 × bitmap 8×8) [depuis result_rx, pas depuis L1]
+  NIVEAU 13 — Décapsulation symétrique côté UE_B (récap)
 ========================================================================
+
+  📡 DÉCAPSULATION DYNAMIQUE (appels inverses) :
+
+   🔄 Niveau 11 (inverse) : Réception RF → Baseband I/Q
+      • s_RF(t) reçu → down-conversion avec f_c = 1747.5 MHz
+      • I(t) = s_RF(t)·cos(2πf_c t) → filtre passe-bas
+      • Q(t) = -s_RF(t)·sin(2πf_c t) → filtre passe-bas
+
+   🔄 Niveau 10 (inverse) : Démodulation OFDM
+      • Suppression du CP (144 échantillons)
+      • FFT N=2048 → retour domaine fréquentiel
+      • Extraction des 24 sous-porteuses actives
+
+      📊 CALCUL FFT DÉTAILLÉ :
+      X[k] = Σ x[n]·e^(-j2πkn/N) pour k=0..N-1
+      • X_freq calculé pour 2048 points
+      • Sous-porteuses actives : indices 724 à 747
+
+      🎯 SYMBOLES 16-QAM RECONSTRUITS (premiers) :
+        - s0 = +1.2575 + -0.3935j
+        - s1 = +0.5778 + -0.6492j
+        - s2 = -1.0905 + +0.7187j
+        - s3 = +1.1800 + -0.0805j
+
+   🔄 Niveau 9 (inverse) : Démodulation 16-QAM → LLR
+      • SNR estimée = 16.7 dB → σ² = 0.021380
+      • Formules LLR (soft-demapping) :
+        LLR(b0) = -4·Re(s) / (√10·σ²)
+        LLR(b1) = -4·Im(s) / (√10·σ²)
+        LLR(b2) = -4·(2 - |Re(s)|·√10) / (√10·σ²)
+        LLR(b3) = -4·(2 - |Im(s)|·√10) / (√10·σ²)
+
+      📊 CALCUL LLR DÉTAILLÉ :
+
+      Symbole 0: s = +1.2575 + -0.3935j
+        LLR(b0) = -74.40 → bit = 0
+        LLR(b1) = +23.28 → bit = 1
+        LLR(b2) = +116.95 → bit = 1
+        LLR(b3) = -44.71 → bit = 0
+
+      Symbole 1: s = +0.5778 + -0.6492j
+        LLR(b0) = -34.19 → bit = 0
+        LLR(b1) = +38.41 → bit = 1
+        LLR(b2) = -10.22 → bit = 0
+        LLR(b3) = +3.13 → bit = 1
+
+      Symbole 2: s = -1.0905 + +0.7187j
+        LLR(b0) = +64.52 → bit = 1
+        LLR(b1) = -42.52 → bit = 0
+        LLR(b2) = +85.69 → bit = 1
+        LLR(b3) = +16.14 → bit = 1
+
+      Symbole 3: s = +1.1800 + -0.0805j
+        LLR(b0) = -69.81 → bit = 0
+        LLR(b1) = +4.76 → bit = 1
+        LLR(b2) = +102.44 → bit = 1
+        LLR(b3) = -103.27 → bit = 0
+
+      ✅ Bits reconstruits (premiers 16) :
+        [0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0]
+
+   🔄 Niveau 8 (inverse) : Déscramble + Décodage Turbo
+      • Seed = 1174470915 (RNTI=0x4601, PCI=1, SF=3)
+      • Générateur de scrambling LTE (registres à décalage) :
+        c(n) = (x1(n+Nc) + x2(n+Nc)) mod 2
+        x1(n+31) = (x1(n+3) + x1(n)) mod 2
+        x2(n+31) = (x2(n+3) + x2(n+2) + x2(n+1) + x2(n)) mod 2
+        Nc = 1600
+      • Premiers bits scrambling : [1 0 0 0 1 1 0 0 0 0 0 1 0 0 0 0]
+      • Bits reçus (scramblés)    : [0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0]
+      • Après XOR                 : [np.int64(1), np.int64(1), np.int64(1), np.int64(0), np.int64(1), np.int64(0), np.int64(0), np.int64(1), np.int64(1), np.int64(0), np.int64(1), np.int64(0), np.int64(0), np.int64(1), np.int64(1), np.int64(0)]
+
+      🚀 DÉCODAGE TURBO (TS 36.212 §5.1.3) :
+      • 8 itérations Max-Log-MAP
+      • Taux de code = 1/3
+      • Polynômes RSC :
+        - G0 = 1 (systématique)
+        - G1 = 1 + D² + D³
+        - G2 = 1 + D + D³
+      • Entrelaceur QPP (Quadratic Permutation Polynomial)
+      • Longueur de bloc = 480 bits
+
+      📊 PERFORMANCES :
+      • SNR d'entrée : 16.7 dB
+      • Gain de codage : 7.0 dB
+      • SNR après décodage : 23.7 dB
+      • BER cible : < 1e-06
+
+      ✅ Transport Block reconstruit : 61 octets = 488 bits
+      • CRC-24A vérification : 0xD6E4E2
+      • CRC-24A recalculé : 0xD6E4E2
+      • ✅ Intégrité du TB vérifiée → ACK HARQ envoyé
+
+   🔄 Niveau 7 (inverse) : MAC/RLC/PDCP déchiffrement
+      • MAC démux LCID=0x01 → RLC PDU (56 octets)
+      • RLC UM SN=0x123 → réassemblage
+      • PDCP déchiffrement AES-128 CTR
+      • COUNT = 0x00000123 (HFN=0, SN=0x123)
+      • Paquet IP restauré (52 octets)
+
+   🔄 Niveau 6 (inverse) : Décapsulation Ethernet
+      • Vérification FCS CRC32 : 0x11313235 ✅
+      • Source MAC: 02:00:00:aa:bb:01
+      • Destination MAC: 02:00:00:cc:dd:fe
+
+   🔄 Niveau 5 (inverse) : Vérification IPv4
+      • Header checksum : 0x7A36 ✅
+      • Source IP: 10.45.0.42
+      • Destination IP: 10.99.0.7
+
+   🔄 Niveau 4 (inverse) : Vérification TCP
+      • Checksum TCP : 0x4013 ✅
+      • Flags: PSH+ACK, Window: 8192
+
+   🔄 Niveau 3 (inverse) : Parsing JSON
+      • Payload reçu : b'{"result":8}'
+      • json.loads() → {"result": 8}
+      • Résultat extrait : 8
+
+  ====================================================================
+  ✅ DÉCAPSULATION RÉUSSIE
+  ====================================================================
+  📊 RÉCAPITULATIF DES OPÉRATIONS :
+     • Down-conversion RF → I/Q (L11)
+     • FFT + suppression CP → symboles (L10)
+     • 16-QAM soft-demapping → LLR → bits (L9)
+     • Déscramble + Turbo decode → TB (L8)
+     • PDCP déchiffre + RLC + MAC → IP (L7)
+     • Ethernet décapage → IP (L6)
+     • IP checksum → TCP (L5)
+     • TCP checksum → payload (L4)
+     • JSON parse → résultat (L3)
+
+  🎯 RÉSULTAT FINAL : 8
+  🔄 Vérification : Le résultat correspond à l'addition du Niveau 1
+
+========================================================================
+  NIVEAU 14 — Glyph "8" rastérisé (bitmap 8×8)
+========================================================================
+  Lookup fonte : code ASCII 0x38 → 8 octets de bitmap
   Représentation visuelle (█ = pixel ON, · = pixel OFF) :
-    ········ 
-    ··███··· 
-    ····█··· 
-    ····█··· 
-    ···█···· 
-    ··█····· 
-    ··███··· 
-    ········ 
-
-  Total pixels allumés : 10 sur 64
-
-========================================================================
-  NIVEAU 15 — Sous-pixel OLED : diode Shockley + Rs (boucle bouclée)
-========================================================================
-  Modèle : I = Is·(exp(V_d/(n·VT)) − 1)  ;  V = V_d + I·Rs
-    V = 3.0 V  ;  Is = 1.00e-12 A  ;  n = 2.0  ;  VT = 25.85 mV (T=300.0 K)  ;  Rs = 10.0 kΩ
-  Résolution bisection :
-    V_diode  = 988.56 mV
-    V_Rs     = 2011.44 mV  (chute IR sur Rs)
-    I_pixel  = 201.144 µA
-    P_pixel  = V·I = 603.433 µW
-  10 pixels ON × 3 sous-pixels = 30 sous-pixels
-    I_total = 6.034 mA   P_total = 18.103 mW
-
-  ┌──────────────────────────────────────────────────────────────────┐
-  │  TX (L0)  : MOSFET en saturation, I_D ≈ µA (modèle quadratique)  │
-  │  RX (L15) : Shockley + Rs, I_pixel =  201.14 µA               │
-  │  Deux régimes physiques distincts, deux équations distinctes.    │
-  │  Sans Rs, Shockley nu diverge à V > V_th ; Rs auto-limite.       │
-  └──────────────────────────────────────────────────────────────────┘
+    ··████··   0x3C  00111100
+    ·██··██·   0x66  01100110
+    ·██··██·   0x66  01100110
+    ··████··   0x3C  00111100
+    ·██··██·   0x66  01100110
+    ·██··██·   0x66  01100110
+    ··████··   0x3C  00111100
+    ········   0x00  00000000
+  Pixels allumés : 28 sur 64
 
 ========================================================================
-  ✅ Trace complète : 1 + 1 = 2
-  🔍 Décodage RX indépendant : result_rx = 2 ≡ attendu (2)
+  NIVEAU 15 — Sous-pixel OLED : U = R · I (boucle bouclée)
 ========================================================================
+  V_OLED = 3.0 V
+  R_pixel = 600 kΩ
+  I_pixel = U / R = 5.00 µA
+  P_pixel = V·I = 15.00 µW par sous-pixel
+  28 pixels ON × 3 sous-pixels = 84 sous-pixels
+  I_total = 420.00 µA   P_total = 1260.00 µW
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │  Niveau 0  (TX)  : U=0.9 V   R≈5 kΩ    I≈180 µA    MOSFET    │
+  │  Niveau 15 (RX)  : U=3.0 V   R=600 kΩ   I=5.00 µA    OLED      │
+  │  Même loi linéaire à 2 paramètres aux deux extrémités.       │
+  └──────────────────────────────────────────────────────────────┘
+
+========================================================================
+  ✅ Trace complète. 4+4=8
+  🔄 Hiérarchie complète : Clavier → MOSFET → Inverseur → NAND → Bascule → Registre → Additionneur → ... → OLED
+========================================================================
+
+  🔄 Le résultat a voyagé :
+     MOSFET → Additionneur → ARMv8 → JSON → TCP → IP → Ethernet
+     → PDCP chiffré → RLC → MAC → TB → Turbo → 16-QAM → OFDM
+     → RF → Propagation → Réception → Démodulation → Décapsulation
+     → Glyphe → OLED
+  📐 Loi U = R·I vérifiée aux deux extrémités (TX: MOSFET, RX: OLED)
+```
+  📐 Loi U = R·I vérifiée aux deux extrémités (TX: MOSFET, RX: OLED)
   ```

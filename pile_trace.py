@@ -1023,7 +1023,7 @@ def L11_rf(cfg: dict, x_baseband: np.ndarray) -> np.ndarray:
 # NIVEAU 12 — Friis
 # ============================================================================
 
-def L12_friis(cfg: dict) -> None:
+def L12_friis(cfg: dict) -> float:
     banner('NIVEAU 12 — Bilan de liaison Friis (UE → eNB)')
     fc = cfg['f_carrier_hz']
     d = cfg['distance_m']
@@ -1043,6 +1043,7 @@ def L12_friis(cfg: dict) -> None:
     print(f'  L_FS={L_fs_db:.1f} dB + L_excess={L_excess} dB → L_total={L_total:.1f} dB')
     print(f'  P_r = {Pt}+{Gt}+{Gr}−{L_total:.1f} = {Pr:.1f} dBm')
     print(f'  N_sys = {N_sys:.1f} dBm → SNR ≈ {SNR:.1f} dB')
+    return SNR
 
 
 # ============================================================================
@@ -1416,8 +1417,10 @@ def main():
     ap.add_argument('--check', action='store_true',
                     help='Mode silencieux : exit 0 si round-trip OK, 1 sinon')
     ap.add_argument('--font', help='Chemin vers une TTF (sinon DejaVuSansMono)')
-    ap.add_argument('--snr-db', type=float, default=1000.0,
-                    help='SNR du canal AWGN en dB (défaut: ∞, pas de bruit)')
+    ap.add_argument('--snr-db', type=float, default=None,
+                    help='SNR AWGN en dB. Par défaut : SNR calculé par L12 (Friis), '
+                         'donc le canal est piloté par le bilan de liaison. '
+                         'Override pour test (ex: 300 = pas de bruit, -10 = canal pourri).')
     ap.add_argument('--soft-demap', action='store_true',
                     help='Utiliser la démap soft (LLR max-log-MAP) au lieu de hard')
     ap.add_argument('--rx-override', action='append', default=[], metavar='KEY=VAL',
@@ -1436,8 +1439,6 @@ def main():
 
     with cm:
         print(f'\n📁 Config : {len(cfg)} clés ; addition : {a} + {b}')
-        if args.snr_db < 300:
-            print(f'🌀 Canal AWGN actif : SNR = {args.snr_db} dB')
         if args.soft_demap:
             print(f'🎯 Démap soft (LLR max-log-MAP)')
 
@@ -1457,7 +1458,16 @@ def main():
         L9p5_pss_demo(cfg)
         x_with_cp, sc_offset, n_sc, n_ofdm = L10_ofdm(cfg, symbols, n_prb_used)
         L11_rf(cfg, x_with_cp)
-        L12_friis(cfg)
+        snr_friis = L12_friis(cfg)
+
+        if args.snr_db is None:
+            snr_effective = snr_friis
+            print(f'\n  🔗 Chaînage L12 → L13 : SNR canal AWGN = {snr_friis:.1f} dB '
+                  f'(piloté par le bilan Friis, pas un paramètre cosmétique)')
+        else:
+            snr_effective = args.snr_db
+            print(f'\n  🔧 Override SNR : L12 calculait {snr_friis:.1f} dB, '
+                  f'L13 forcé à {args.snr_db:.1f} dB (test override)')
 
         # DCI : info que l'eNB enverrait via PDCCH au RX (taille TB, allocation)
         # En LTE réel : DCI format 0/1A signale RB allocation + MCS → TB size table
@@ -1489,7 +1499,7 @@ def main():
                        x_rx=x_with_cp,
                        dci=dci,
                        expected_result=result,
-                       snr_db=args.snr_db,
+                       snr_db=snr_effective,
                        use_soft_demap=args.soft_demap,
                        verbose=args.verbose)
 
