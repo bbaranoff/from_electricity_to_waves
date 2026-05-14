@@ -1406,11 +1406,94 @@ def parse_override(s: str, existing_value=None) -> tuple:
             return k, v
 
 
+def int_auto(s: str) -> int:
+    """Int qui accepte les préfixes 0x / 0o / 0b."""
+    return int(s, 0)
+
+
+# ─── Table des paramètres CSV exposables en CLI ─────────────────────────────
+# Format par entrée : (csv_key, cli_flag, type, help_text)
+# Tous ces args ont default=None → si fourni, override cfg[csv_key].
+# Les hex strings (K, OP, RAND...) restent en str car le CSV les charge en str.
+
+CFG_PARAMS = [
+    ('MOSFET / silicium (L0)', [
+        ('vdd_core_v',          '--vdd-core',   float,    'Tension cœur (V)'),
+        ('mosfet_vth_v',        '--vth',        float,    'Tension de seuil MOSFET (V)'),
+        ('mosfet_mu_cox_uA_V2', '--mu-cox',     float,    'µ·Cox (A/V²)'),
+        ('mosfet_WL',           '--w-l',        float,    'Ratio W/L'),
+        ('mosfet_cload_F',      '--cload',      float,    'Capacité de charge (F)'),
+    ]),
+    ('LTE Security / AKA (L7)', [
+        ('imsi',                '--imsi',       str,      'IMSI (15 chiffres MCC+MNC+MSIN)'),
+        ('k',                   '--k',          str,      'Clé K (hex 32 chars, sans 0x)'),
+        ('op',                  '--op',         str,      'OP opérateur (hex 32)'),
+        ('opc',                 '--opc',        str,      'OPc (hex 32) — sinon dérivé de K,OP'),
+        ('amf',                 '--amf',        str,      'AMF (hex 4 chars)'),
+        ('rand',                '--rand',       str,      'RAND challenge (hex 32)'),
+        ('sqn',                 '--sqn',        str,      'SQN séquence (hex 12)'),
+        ('nas_ul_count',        '--nas-count',  int,      'NAS_UL_COUNT (entier)'),
+        ('eea_id',              '--eea',        int,      'Algo PDCP enc : 1=Snow3G 2=AES 3=ZUC'),
+    ]),
+    ('Réseau IP / TCP / Ethernet (L4-L6)', [
+        ('src_ip',              '--src-ip',     str,      'IP source dotted'),
+        ('dst_ip',              '--dst-ip',     str,      'IP destination dotted'),
+        ('src_mac',             '--src-mac',    str,      'MAC source xx:xx:xx:xx:xx:xx'),
+        ('dst_mac',             '--dst-mac',    str,      'MAC destination'),
+        ('src_port',            '--src-port',   int,      'Port TCP source'),
+        ('dst_port',            '--dst-port',   int,      'Port TCP destination'),
+        ('tcp_seq',             '--tcp-seq',    int_auto, 'TCP SEQ (0x… accepté)'),
+        ('tcp_ack',             '--tcp-ack',    int_auto, 'TCP ACK (0x… accepté)'),
+        ('tcp_window',          '--tcp-window', int,      'TCP window size'),
+    ]),
+    ('LTE PHY (L8-L10)', [
+        ('f_carrier_hz',        '--f-carrier',  float,    'Fréquence porteuse RF (Hz)'),
+        ('sample_rate_hz',      '--fs',         float,    'Sample rate baseband (Hz)'),
+        ('fft_size',            '--n-fft',      int,      'Taille FFT OFDM'),
+        ('bandwidth_hz',        '--bw',         float,    'Bande passante cellule (Hz)'),
+        ('n_prb',               '--n-prb',      int,      'PRB alloués (auto si trop petit pour TB)'),
+        ('prb_start',           '--prb-start',  int,      'Indice premier PRB'),
+        ('mcs',                 '--mcs',        int,      'MCS index (informatif)'),
+        ('rnti',                '--rnti',       int_auto, 'C-RNTI (0x… accepté)'),
+        ('pci',                 '--pci',        int,      'Physical Cell ID (0..503)'),
+        ('sfn',                 '--sfn',        int,      'System Frame Number'),
+        ('subframe',            '--subframe',   int,      'Subframe (0..9)'),
+        ('n_id_2',              '--n-id-2',     int,      'PSS group {0,1,2} (défaut pci%3)'),
+    ]),
+    ('RF & Bilan de liaison (L11/L12)', [
+        ('rf_interp_factor',    '--rf-interp',  int,      'Facteur interpolation TX (entier)'),
+        ('rf_if_hz',            '--f-if',       float,    'Fréquence IF upconv digital (Hz)'),
+        ('rf_filter_taps',      '--rf-taps',    int,      'Nb taps filtre FIR'),
+        ('p_tx_dbm',            '--p-tx',       float,    'Puissance TX (dBm)'),
+        ('g_tx_dbi',            '--g-tx',       float,    'Gain antenne TX (dBi)'),
+        ('g_rx_dbi',            '--g-rx',       float,    'Gain antenne RX (dBi)'),
+        ('distance_m',          '--distance',   float,    'Distance UE↔eNB (m)'),
+        ('path_loss_excess_db', '--path-loss',  float,    'Excess loss au-delà Friis (dB)'),
+        ('nf_db',               '--nf',         float,    'Noise figure RX (dB)'),
+    ]),
+    ('OLED Shockley (L15)', [
+        ('oled_voltage_v',      '--oled-v',     float,    'Tension OLED (V)'),
+        ('oled_is_a',           '--oled-is',    float,    'Courant saturation diode (A)'),
+        ('oled_ideality_n',     '--oled-n',     float,    'Facteur idéalité diode'),
+        ('oled_temp_k',         '--oled-temp',  float,    'Température (K)'),
+        ('oled_rs_ohm',         '--oled-rs',    float,    'Résistance série OLED (Ω)'),
+    ]),
+]
+
+
 def main():
     ap = argparse.ArgumentParser(
-        description='Trace LTE/NR honnête (real libs) : MOSFET → OLED',
-        formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('csv_file', help='Fichier CSV de config')
+        description='Trace LTE/NR honnête (real libs) : MOSFET → OLED.\n'
+                    'Tous les paramètres du CSV peuvent être override par CLI '
+                    '(voir groupes ci-dessous).',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='Exemples :\n'
+               '  pile_trace.py pile_values.csv 1+1\n'
+               '  pile_trace.py pile_values.csv 16+16 --distance 2000 --p-tx 30\n'
+               '  pile_trace.py pile_values.csv 1+1 --rnti 0xFFFF --pci 42\n'
+               '  pile_trace.py pile_values.csv 1+0 --snr-db -10 --soft-demap',
+    )
+    ap.add_argument('csv_file', help='Fichier CSV de config (base)')
     ap.add_argument('addition', nargs='?', default='1+1', help='Addition (ex: 16+16)')
     ap.add_argument('-v', '--verbose', action='store_true',
                     help='Détail round-trip par niveau')
@@ -1428,10 +1511,29 @@ def main():
                          'Répétable. Ex: --rx-override k=ff...ff --rx-override rand=00...00 . '
                          'Permet de tester que L13 utilise vraiment son propre cfg '
                          '(et pas un état hérité de TX).')
+
+    # ─── Args dérivés des params CSV (groupés) ──────────────────────────────
+    for group_name, params in CFG_PARAMS:
+        g = ap.add_argument_group(group_name)
+        for csv_key, cli_flag, type_, help_ in params:
+            g.add_argument(cli_flag, dest=csv_key, type=type_, default=None,
+                           metavar=csv_key.upper(),
+                           help=f'{help_} [défaut: CSV]')
+
     args = ap.parse_args()
 
     cfg = load_csv(args.csv_file)
     a, b = parse_addition(args.addition)
+
+    # ─── Apply CLI overrides on cfg (avant tout traitement) ─────────────────
+    overrides_applied = []
+    for _, params in CFG_PARAMS:
+        for csv_key, _, _, _ in params:
+            v = getattr(args, csv_key, None)
+            if v is not None:
+                old = cfg.get(csv_key, '<absent>')
+                cfg[csv_key] = v
+                overrides_applied.append((csv_key, old, v))
 
     import io, contextlib
     sink = io.StringIO() if args.check else None
@@ -1439,6 +1541,10 @@ def main():
 
     with cm:
         print(f'\n📁 Config : {len(cfg)} clés ; addition : {a} + {b}')
+        if overrides_applied:
+            print(f'🔧 Overrides CLI appliqués (TX+RX, vs CSV) : {len(overrides_applied)}')
+            for k, old, new in overrides_applied:
+                print(f'     cfg["{k}"] : {old!r}  →  {new!r}')
         if args.soft_demap:
             print(f'🎯 Démap soft (LLR max-log-MAP)')
 

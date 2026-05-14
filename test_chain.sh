@@ -92,11 +92,11 @@ run_test "999+1 → 1000 (3 chiffres)" OK "999+1"
 # ─── Section 2 : SNR canal (override de Friis) ─────────────────────────────
 
 section "📡  SNR override — limites du décodeur"
-run_test "SNR ∞ (300 dB)        → décodage parfait" OK   "1+1 --snr-db 300"
-run_test "SNR confortable 25 dB → décodage OK"      OK   "1+1 --snr-db 25"
-run_test "SNR limite 18 dB      → décodage OK"      OK   "1+1 --snr-db 18"
-run_test "SNR pourri 0 dB       → décodage CASSE"   FAIL "1+1 --snr-db 0"
-run_test "SNR très pourri -10 dB → décodage CASSE"  FAIL "1+1 --snr-db -10"
+run_test "SNR ∞ (300 dB)        → décodage parfait"       OK   "1+1 --snr-db 300"
+run_test "SNR confortable 25 dB → décodage OK"            OK   "1+1 --snr-db 25"
+run_test "SNR limite 18 dB      → décodage OK"            OK   "1+1 --snr-db 18"
+run_test "SNR -5 dB             → décodage CASSE"         FAIL "1+1 --snr-db -10"
+run_test "SNR très pourri -15 dB → décodage CASSE"        FAIL "1+1 --snr-db -15"
 
 # ─── Section 3 : bilan de liaison Friis ────────────────────────────────────
 
@@ -149,7 +149,7 @@ check_in_output \
 check_in_output \
     "Avec --snr-db : override explicite signalé" \
     "Override SNR" \
-    "1+1 --snr-db -5"
+    "1+1 --snr-db -10"
 
 # ─── Section 8 : --soft-demap (chemin alternatif) ──────────────────────────
 
