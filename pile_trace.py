@@ -1462,7 +1462,7 @@ CFG_PARAMS = [
         ('pci',                 '--pci',        int,      'Physical Cell ID (0..503)'),
         ('sfn',                 '--sfn',        int,      'System Frame Number'),
         ('subframe',            '--subframe',   int,      'Subframe (0..9)'),
-        ('n_id_2',              '--n-id-2',     int,      'PSS group {0,1,2} (défaut pci%3)'),
+        ('n_id_2',              '--n-id-2',     int,      'PSS group {0,1,2} (défaut pci mod 3)'),
     ]),
     ('RF & Bilan de liaison (L11/L12)', [
         ('rf_interp_factor',    '--rf-interp',  int,      'Facteur interpolation TX (entier)'),
