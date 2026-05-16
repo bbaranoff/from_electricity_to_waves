@@ -1,4 +1,5 @@
 ```bash
+cd from_electricity_to_waves && source .env/bin/activate
 python3 pile_trace.py pile_values.csv 4+4 --verbose
 ```
 ```txt
